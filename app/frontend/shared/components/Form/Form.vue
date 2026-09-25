@@ -56,7 +56,6 @@ import FormGroup from './FormGroup.vue'
 import FormLayout from './FormLayout.vue'
 import { useFormUpdaterQuery } from './graphql/queries/formUpdater.api.ts'
 import { getFormClasses } from './initializeFormClasses.ts'
-import addTranslationFunctionPlugin from './plugins/addTranslationFunctionPlugin.ts'
 import initializeFieldInitialValuesCleanupPlugin from './plugins/initializeFieldInitialValuesCleanupPlugin.ts'
 import { FormHandlerExecution, FormValidationVisibility } from './types.ts'
 import { getNodeByName as getFormkitFieldNode, getNodeId, setErrors } from './utils.ts'
@@ -411,7 +410,6 @@ const localFormKitPlugins = computed(() => {
   return [
     initializeFieldInitialValuesCleanupPlugin,
     delayedSubmitPlugin,
-    addTranslationFunctionPlugin,
     ...(props.formKitPlugins || []),
   ]
 })
@@ -1379,11 +1377,7 @@ const initializeFormSchema = () => {
             },
             skipSubscription: 'userCurrentTaskbarItemStateUpdates',
             skipSubscriptionAddCallback: (variables: FormUpdaterQueryVariables) => {
-              return (
-                !variables.meta.initial &&
-                !variables.meta.reset &&
-                !variables.meta.additionalData.applyTaskbarState
-              )
+              return !variables.meta.initial && !variables.meta.additionalData?.applyTaskbarState
             },
           },
           fetchPolicy: 'no-cache',

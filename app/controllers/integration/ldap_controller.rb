@@ -6,6 +6,7 @@ class Integration::LdapController < ApplicationController
   prepend_before_action :authenticate_and_authorize!
 
   SENSITIVE_FIELDS = [:bind_pw].freeze
+  IMPORT_JOB_SENSITIVE_FIELDS = %w[payload.ldap_config.bind_pw].freeze
 
   EXCEPTIONS_SPECIAL_TREATMENT = {
     '48, Inappropriate Authentication' => {}, # workaround for issue #1114
@@ -54,9 +55,9 @@ class Integration::LdapController < ApplicationController
   private
 
   def payload_dry_run
-    payload = unmask_sensitive_params(super, LdapSource.find_by(id: params[:ldap_source_id]))
+    payload = unmask_sensitive_params(super, LdapSource.find_by(id: params[:ldap_source_id])&.preferences)
     {
-      ldap_config: payload
+      ldap_config: payload.symbolize_keys
     }
   end
 end

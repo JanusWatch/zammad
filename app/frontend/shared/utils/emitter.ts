@@ -4,7 +4,6 @@ import mitt, { type Emitter } from 'mitt'
 
 type StaticEvents = {
   'session-invalid': void
-  'expand-collapsed-content': string
   'focus-quick-search-field': void
   'reset-quick-search-field': void
   'primary-sidebar-transition': void
@@ -16,9 +15,9 @@ type StaticEvents = {
 }
 
 type DynamicEvents = {
-  [key in
-    | `customer-ticket-list-refetch:${string}`
-    | `organization-ticket-list-refetch:${string}`]: void
+  [
+    key in `customer-ticket-list-refetch:${string}` | `organization-ticket-list-refetch:${string}`
+  ]: void
 }
 
 export type Events = StaticEvents & DynamicEvents

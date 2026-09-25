@@ -47,6 +47,10 @@ import CommonTableSkeleton from '#desktop/components/CommonTable/Skeleton/Common
 import type { TableAdvancedItem } from '#desktop/components/CommonTable/types.ts'
 import CommonNavigationTabs from '#desktop/components/CommonTabs/CommonNavigationTabs/CommonNavigationTabs.vue'
 import CommonTabGroup from '#desktop/components/CommonTabs/CommonTabGroup/CommonTabGroup.vue'
+import {
+  KnowledgeBaseAccess,
+  type KnowledgeBasePermissionRow,
+} from '#desktop/components/Form/fields/FieldKnowledgeBasePermissions/types.ts'
 import LayoutContent from '#desktop/components/layout/LayoutContent.vue'
 import SplitButton from '#desktop/components/SplitButton/SplitButton.vue'
 import ThemeSwitch from '#desktop/components/ThemeSwitch/ThemeSwitch.vue'
@@ -529,6 +533,27 @@ const buttonGroupOptions: CommonButtonItem[] = [
 
 const application = useApplicationStore()
 
+// The second role shows a locked row: it inherits editor from the parent, so nothing below
+//   may override it.
+const kbPermissionRows: KnowledgeBasePermissionRow[] = [
+  {
+    roleId: '1',
+    roleName: 'Admin',
+    inheritedAccess: null,
+    allowedAccesses: [
+      KnowledgeBaseAccess.Editor,
+      KnowledgeBaseAccess.Reader,
+      KnowledgeBaseAccess.None,
+    ],
+  },
+  {
+    roleId: '2',
+    roleName: 'Agent',
+    inheritedAccess: KnowledgeBaseAccess.Editor,
+    allowedAccesses: [KnowledgeBaseAccess.Editor],
+  },
+]
+
 const formSchema = defineFormSchema([
   {
     type: 'rating',
@@ -649,6 +674,28 @@ const formSchema = defineFormSchema([
           }
         }
       `,
+    },
+  },
+  {
+    type: 'kbCategoryIcon',
+    name: 'kb_category_icon',
+    label: 'Knowledge Base Category Icon',
+    props: {
+      // Pinned, so the catalog does not depend on how the knowledge base is themed.
+      iconSet: 'FontAwesome',
+    },
+    value: 'f115',
+  },
+  {
+    type: 'kbPermissions',
+    name: 'kb_permissions',
+    label: 'Knowledge Base Permissions',
+    props: {
+      permissionRows: kbPermissionRows,
+    },
+    value: {
+      '1': 'editor',
+      '2': 'editor',
     },
   },
   {
@@ -1687,6 +1734,13 @@ const { openFeedbackDialog } = useFeedbackDialog()
 
       <div>
         <h2>Labels</h2>
+
+        <CommonLabel size="xs" prefix-icon="logo" suffix-icon="logo-flat">
+          Extra small
+        </CommonLabel>
+
+        <br />
+
         <CommonLabel size="small" prefix-icon="logo" suffix-icon="logo-flat"> Small </CommonLabel>
 
         <br />
@@ -2000,7 +2054,7 @@ const { openFeedbackDialog } = useFeedbackDialog()
                 },
                 {
                   key: 'personal-setting',
-                  label: 'Profile settings',
+                  label: 'Personal settings',
                   link: '/personal-setting',
                   icon: 'user-settings',
                 },
@@ -2135,8 +2189,7 @@ const { openFeedbackDialog } = useFeedbackDialog()
         <pre
           class="flex flex-wrap gap-5 rounded-lg bg-blue-200 p-5 font-mono text-sm text-wrap text-gray-100 dark:bg-gray-700 dark:text-neutral-400"
         >
-          {{ formValues }}</pre
-        >
+          {{ formValues }}</pre>
       </div>
 
       <section class="mb-6">
@@ -2151,8 +2204,7 @@ const { openFeedbackDialog } = useFeedbackDialog()
           <CommonTabGroup v-model="activeTab" :tabs="playgroundTabItems" select-first-by-default />
         </div>
         <pre class="mb-6 rounded bg-blue-100 px-3 py-1 font-mono text-xs dark:bg-gray-700">
-active: {{ activeTab }}</pre
-        >
+active: {{ activeTab }}</pre>
 
         <h3 class="mb-2">2. Tab Group — Multi Select (scroll, no marker)</h3>
         <p class="mb-2 text-sm text-gray-500">
@@ -2168,8 +2220,7 @@ active: {{ activeTab }}</pre
           />
         </div>
         <pre class="mb-6 rounded bg-blue-100 px-3 py-1 font-mono text-xs dark:bg-gray-700">
-active: {{ activeFilters }}</pre
-        >
+active: {{ activeFilters }}</pre>
 
         <h3 class="mb-2">3. Tab Group — Single Select (overflow menu)</h3>
         <p class="mb-2 text-sm text-gray-500">
@@ -2185,8 +2236,7 @@ active: {{ activeFilters }}</pre
           />
         </div>
         <pre class="mb-6 rounded bg-blue-100 px-3 py-1 font-mono text-xs dark:bg-gray-700">
-active: {{ activeTabOverflow }}</pre
-        >
+active: {{ activeTabOverflow }}</pre>
 
         <h3 class="mb-2">4. Tab Group — Multi Select (overflow menu)</h3>
         <p class="mb-2 text-sm text-gray-500">
@@ -2203,8 +2253,7 @@ active: {{ activeTabOverflow }}</pre
           />
         </div>
         <pre class="mb-6 rounded bg-blue-100 px-3 py-1 font-mono text-xs dark:bg-gray-700">
-active: {{ activeFiltersOverflow }}</pre
-        >
+active: {{ activeFiltersOverflow }}</pre>
 
         <h3 class="mb-2">5. Navigation Tabs — Scroll Mode</h3>
         <p class="mb-2 text-sm text-gray-500">
@@ -2219,8 +2268,7 @@ active: {{ activeFiltersOverflow }}</pre
           />
         </div>
         <pre class="mb-6 rounded bg-blue-100 px-3 py-1 font-mono text-xs dark:bg-gray-700">
-active: {{ activeNavTabScroll }}</pre
-        >
+active: {{ activeNavTabScroll }}</pre>
 
         <h3 class="mb-2">6. Navigation Tabs — Overflow Menu</h3>
         <p class="mb-2 text-sm text-gray-500">
@@ -2235,8 +2283,7 @@ active: {{ activeNavTabScroll }}</pre
           />
         </div>
         <pre class="mb-6 rounded bg-blue-100 px-3 py-1 font-mono text-xs dark:bg-gray-700">
-active: {{ activeNavTabOverflow }}</pre
-        >
+active: {{ activeNavTabOverflow }}</pre>
       </section>
 
       <h3>Split Button</h3>

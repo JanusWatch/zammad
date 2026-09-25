@@ -230,7 +230,7 @@ describe('CommonAdvancedTable', () => {
 
     const withTooltip = wrapper.getByText('Tooltip-enabled cell text')
 
-    expect(withTooltip).toHaveAttribute('data-tooltip', 'true')
+    expect(withTooltip).toHaveAttribute('data-tooltip', 'truncate')
     expect(withTooltip).toHaveAttribute('aria-label', 'Tooltip-enabled cell text')
 
     const withoutTooltip = wrapper.getByText('Cell text without tooltip')
@@ -915,7 +915,7 @@ describe('CommonAdvancedTable', () => {
     })
 
     expect(
-      wrapper.getByText('You reached the table limit of 20 tickets (10 remaining).'),
+      wrapper.getByText('You reached the table limit of 20 items (10 remaining).'),
     ).toBeInTheDocument()
 
     scrollContainer.remove()
@@ -943,7 +943,7 @@ describe('CommonAdvancedTable', () => {
       orderBy: 'label',
     })
 
-    expect(wrapper.getByText("You don't have more tickets to load.")).toBeInTheDocument()
+    expect(wrapper.getByText("You don't have more items to load.")).toBeInTheDocument()
 
     scrollContainer.remove()
   })

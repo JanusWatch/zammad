@@ -1,9 +1,9 @@
 # Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
 module TestFlags
-  def wait_for_test_flag(flag, skip_clearing: false)
+  def wait_for_test_flag(flag, skip_clearing: false, timeout: Capybara.default_max_wait_time)
     begin
-      wait.until { page.evaluate_script("window.testFlags && window.testFlags.get('#{flag.gsub("'", "\\'")}', #{skip_clearing})") }
+      wait(timeout).until { page.evaluate_script("window.testFlags && window.testFlags.get('#{flag.gsub("'", "\\'")}', #{skip_clearing})") }
     rescue Selenium::WebDriver::Error::TimeoutError
       raise "Test flag #{flag} not set"
     end
@@ -27,8 +27,30 @@ module TestFlags
     wait_for_test_flag("__gql subscription #{name} #{number}", skip_clearing: skip_clearing)
   end
 
-  def wait_for_subscription_start(name, skip_clearing: true)
+  def wait_for_subscription_start(name, entity: nil, skip_clearing: true)
     wait_for_test_flag("__gql subscription #{name} start", skip_clearing: skip_clearing)
+
+    # The start flag only means the client received the initial subscription response.
+    # The server subscribes to the Redis event stream asynchronously (stream_from),
+    # so an event triggered right away can still get lost. Wait until Redis reports
+    # an active subscriber for the event stream before continuing.
+    begin
+      wait.until { graphql_event_stream_subscribed?(name, entity: entity) }
+    rescue Selenium::WebDriver::Error::TimeoutError
+      raise "GraphQL event stream for subscription #{name} has no subscriber"
+    end
+  end
+
+  def graphql_event_stream_subscribed?(name, entity: nil)
+    @redis ||= Zammad::Service::Redis.new
+
+    # Scope to the channel prefix of the current environment
+    channel_prefix = Rails.application.config.action_cable.cable[:channel_prefix]
+
+    pattern = "#{channel_prefix}:graphql-event:*#{name}*"
+    pattern += "#{entity.to_global_id}*" if entity
+
+    @redis.pubsub('CHANNELS', pattern).any?
   end
 
   def wait_for_form_to_settle(form)
@@ -41,6 +63,16 @@ module TestFlags
 
   def wait_for_form_autofocus(form)
     wait_for_test_flag("#{form}.focused")
+  end
+
+  def wait_for_editor_ready(editor)
+    wait_for_test_flag(editor_test_flag(editor, 'ready'))
+  end
+
+  def editor_test_flag(editor, state)
+    input = editor.respond_to?(:input_element) ? editor.input_element : editor
+
+    "#{input['data-form-id']}.#{input['name']}.editor.#{state}"
   end
 end
 

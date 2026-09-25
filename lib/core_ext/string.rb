@@ -1,6 +1,7 @@
 # Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
 require 'rchardet'
+require 'mail'
 
 class String
   alias old_strip strip
@@ -91,7 +92,9 @@ class String
   options:
     string_only - if true, returns simplified text without link references
     strict - if true, preserves some formatting
-    link_style - :numbered (default) uses [1] references, :markdown uses [text](url) format
+    link_style - :numbered (default) uses [1] references
+                 :markdown uses [text](url) format
+                 :plain leaves link text in place if present, otherwise only the link itself
 
   returns
 
@@ -149,8 +152,7 @@ class String
         end
       end
     elsif string.scan(%r{<a[[:space:]]}i).count < 5_000
-      if link_style == :markdown
-        # Markdown style: [text](url) - always consistent format
+      if %i[plain markdown].include?(link_style)
         string.gsub!(%r{<a[[:space:]]+(|\S+[[:space:]]+)href=("|')(.+?)("|')([[:space:]]*|[[:space:]]+[^>]*)>(.+?)<[[:space:]]*/a[[:space:]]*>}mxi) do |_placeholder|
           link = $3
           text = $6
@@ -158,7 +160,11 @@ class String
           link.presence&.strip!
           text.presence&.strip!
 
-          if link.present? && text.present?
+          # Plain style: just text or link - simple format
+          if link_style == :plain
+            text.presence || link.presence || ''
+          # Markdown style: [text](url) - always consistent format
+          elsif link.present? && text.present?
             "[#{text}](#{link})"
           elsif link.present? && text.blank?
             link
@@ -521,7 +527,7 @@ class String
     # convert string to given charset, if valid_encoding? is true
     if options[:from].present?
       begin
-        encoding = Encoding.find(options[:from])
+        encoding = find_encoding(options[:from])
         if encoding.present? && dup.force_encoding(encoding).valid_encoding?
           force_encoding(encoding)
           return encode!('utf-8', encoding)
@@ -555,6 +561,23 @@ class String
   end
 
   private
+
+  # Resolves a charset label to an `Encoding`.
+  #
+  # Ruby knows only a subset of the charset labels that occur in real mail. For
+  # labels it cannot resolve, the `mail` gem's alias table is consulted before
+  # giving up, so that a declared charset is not silently dropped in favour of
+  # charset detection (e.g. 'ks_c_5601-1987', the Microsoft alias for CP949).
+  def find_encoding(charset)
+    Encoding.find(charset)
+  rescue ArgumentError
+    picked = Mail::Utilities.pick_encoding(charset)
+
+    # The gem falls back to BINARY for labels it does not know either.
+    raise if picked == Encoding::BINARY
+
+    picked
+  end
 
   def viable_encodings(try_first: nil)
     return dup.viable_encodings(try_first: try_first) if frozen?

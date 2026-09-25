@@ -44,6 +44,10 @@ module CreatesTicketArticles # rubocop:disable Metrics/ModuleLength
       clean_params[:internal] = false
     end
 
+    if Ticket::Article::Type.lookup(id: clean_params[:type_id])&.name == 'email' && ticket.group.email_address.blank?
+      raise Exceptions::UnprocessableContent, __('This group has no email address configured for outgoing communication.')
+    end
+
     article                                    = Ticket::Article.new(clean_params)
     article.ticket_id                          = ticket.id
     article.check_mentions_raises_error        = true
@@ -55,22 +59,27 @@ module CreatesTicketArticles # rubocop:disable Metrics/ModuleLength
     # set subtype of present
     article.preferences[:subtype] = subtype if subtype.present?
 
-    article.save!
+    # Article and accounted time are stored in one transaction, so that the
+    #   'after_create_commit' subscription trigger of the article fires only once
+    #   the accounted time is available for the clients as well.
+    ActiveRecord::Base.transaction do
+      article.save!
 
-    # account time
-    if accounted_time_params.present?
-      clean_accounted_time_params = Ticket::TimeAccounting.association_name_to_id_convert(accounted_time_params)
-      clean_accounted_time_params = Ticket::TimeAccounting.param_cleanup(clean_accounted_time_params, true)
+      # account time
+      if accounted_time_params.present?
+        clean_accounted_time_params = Ticket::TimeAccounting.association_name_to_id_convert(accounted_time_params)
+        clean_accounted_time_params = Ticket::TimeAccounting.param_cleanup(clean_accounted_time_params, true)
 
-      time_accounting = Ticket::TimeAccounting.new(
-        ticket_id:         article.ticket_id,
-        ticket_article_id: article.id,
-        **clean_accounted_time_params,
-      )
+        time_accounting = Ticket::TimeAccounting.new(
+          ticket_id:         article.ticket_id,
+          ticket_article_id: article.id,
+          **clean_accounted_time_params,
+        )
 
-      authorize! time_accounting, :create?
+        authorize! time_accounting, :create?
 
-      time_accounting.save!
+        time_accounting.save!
+      end
     end
 
     return article if form_id.blank?

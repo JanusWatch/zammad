@@ -3,8 +3,10 @@
 <script setup lang="ts">
 import { type MaybeElementRef, useCurrentElement, type VueInstance } from '@vueuse/core'
 import { delay } from 'lodash-es'
-import { onBeforeMount, ref, toRef, useTemplateRef, watch } from 'vue'
+import { computed, onBeforeMount, ref, toRef, useTemplateRef, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
+import { useReducedMotion } from '#shared/composables/useReducedMotion.ts'
 import { useTrapTab } from '#shared/composables/useTrapTab.ts'
 import { useApplicationStore } from '#shared/stores/application.ts'
 import emitter from '#shared/utils/emitter.ts'
@@ -12,16 +14,22 @@ import emitter from '#shared/utils/emitter.ts'
 import LeftSidebarFooterMenu from '#desktop/components/layout/LayoutSidebar/LeftSidebar/LeftSidebarFooterMenu.vue'
 import LeftSidebarHeader from '#desktop/components/layout/LayoutSidebar/LeftSidebar/LeftSidebarHeader.vue'
 import LayoutSidebar from '#desktop/components/layout/LayoutSidebar.vue'
-import { numberOfPermanentItems } from '#desktop/components/PageNavigation/firstLevelRoutes.ts'
+import { numberOfPermanentItems } from '#desktop/components/PageNavigation/navigationItems.ts'
 import PageNavigation from '#desktop/components/PageNavigation/PageNavigation.vue'
 import QuickSearch from '#desktop/components/Search/QuickSearch/QuickSearch.vue'
 import UserTaskbarTabs from '#desktop/components/UserTaskbarTabs/UserTaskbarTabs.vue'
 import { useAppBreakpoints } from '#desktop/composables/responsiveness/useAppBreakpoints.ts'
 import { useResizeGridColumns } from '#desktop/composables/useResizeGridColumns.ts'
 
-import { SidebarName, useSidebarDisplay } from './useSidebarDisplay.ts'
+import { SidebarName } from './types.ts'
+import { useSidebarDisplay } from './useSidebarDisplay.ts'
 
 const config = toRef(useApplicationStore(), 'config')
+
+const route = useRoute()
+
+// Route-page skin scope: the active route name on the single data-zammad-target hook.
+const routeTarget = computed(() => (route.name ? String(route.name) : undefined))
 
 const noTransition = ref(false)
 
@@ -72,28 +80,32 @@ const onResetWidth = () => {
 
 onBeforeMount(() => {
   // On the smallest screen (<768px) the primary nav is collapsed by default.
-  if (isSmallestScreen.value) togglePrimaryNavSidebar(true)
+  if (isSmallestScreen.value) togglePrimaryNavSidebar(true, { storage: 'session' })
 
   // When the content sidebar expands on a small screen, collapse the primary nav.
   watch(isContentSidebarCollapsed, (isCollapsed) => {
     if (!isSmallScreen.value || isCollapsed) return
 
-    togglePrimaryNavSidebar(true)
+    togglePrimaryNavSidebar(true, { storage: 'session' })
   })
 
   watch(isSmallestScreen, (isSmallest) => {
     if (!isSmallest) return
 
-    togglePrimaryNavSidebar(true)
+    togglePrimaryNavSidebar(true, { storage: 'session' })
   })
 })
+
+const { hasReducedMotion } = useReducedMotion()
 </script>
 
 <template>
   <div
-    class="grid h-full max-h-full overflow-y-clip duration-100"
-    :class="{ 'transition-none': noTransition }"
-    :style="gridColumns"
+    :style="{
+      '--grid-columns': gridColumns,
+    }"
+    :class="{ 'transition-none': noTransition || hasReducedMotion }"
+    class="grid h-full max-h-full grid-cols-(--grid-columns) overflow-y-clip duration-100 print:h-auto print:max-h-none print:grid-cols-1 print:overflow-visible"
   >
     <LayoutSidebar
       id="primary-sidebar"
@@ -148,7 +160,7 @@ onBeforeMount(() => {
       </template>
     </LayoutSidebar>
 
-    <div id="main-content" class="relative">
+    <div id="main-content" class="relative" :data-zammad-target="routeTarget">
       <RouterView #default="{ Component, route: currentRoute }">
         <KeepAlive :exclude="['ErrorTab']" :max="config.ui_task_mananger_max_task_count">
           <component

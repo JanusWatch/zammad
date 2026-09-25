@@ -181,9 +181,36 @@ function initialise_database () {
   zammad run rake db:seed
 }
 
+function remove_deprecated_files () {
+  # RPM-based upgrades run %post before removing old-only files, so stale
+  # source files from the previous package version are still present when
+  # Rails boots for db:migrate. Remove known removed files explicitly.
+  # Files listed here were removed in the given release and must be cleaned
+  # up on RPM-based systems before migrations run.
+  if [ "${OS}" == "DEBIAN" ]; then
+    return 0
+  fi
+
+  echo "# Removing deprecated source files from previous package versions..."
+
+  # Removed in 7.1
+  rm -f \
+    "${ZAMMAD_DIR}/app/graphql/gql/concerns/handles_possible_objects.rb" \
+    "${ZAMMAD_DIR}/app/models/channel/filter/match/email_regex.rb" \
+    "${ZAMMAD_DIR}/app/services/service/base_with_current_user.rb" \
+    "${ZAMMAD_DIR}/lib/core_ext/action_dispatch/middleware/cookies.rb" \
+    "${ZAMMAD_DIR}/lib/core_ext/rack/utils.rb" \
+    "${ZAMMAD_DIR}/lib/core_ext/saas/interpolation.rb" \
+    "${ZAMMAD_DIR}/lib/core_ext/saas/lexer.rb" \
+    "${ZAMMAD_DIR}/lib/core_ext/saas/media.rb" \
+    "${ZAMMAD_DIR}/lib/core_ext/saas/selector.rb" \
+    "${ZAMMAD_DIR}/lib/core_ext/saas/static_parser.rb" \
+    "${ZAMMAD_DIR}/lib/core_ext/saas/string_interpolation.rb"
+}
+
 function update_database () {
   echo "# database.yml found. Updating db..."
-  zammad run rake db:migrate
+  zammad run rake db:migrate || exit 1
 }
 
 function update_translations () {
@@ -250,7 +277,21 @@ function enforce_redis () {
       REDIS_PID=$(fuser 6379/tcp 2> /dev/null)
       if [ -z "${REDIS_PID}" ]; then
         echo -e "# No running instance of Redis detected.\n# Creating systemd-service: redis@zammad.service."
-        [[ -f '/etc/redis/zammad.conf' ]] || cp /etc/redis/default.conf.example /etc/redis/zammad.conf
+        if [[ ! -f '/etc/redis/zammad.conf' ]]; then
+          # redis7 (SLES 15) ships default.conf.example; redis 8+ (SLES 16) ships redis.default.conf.template.
+          local redis_conf_src
+          if [[ -f '/etc/redis/redis.default.conf.template' ]]; then
+            redis_conf_src='/etc/redis/redis.default.conf.template'
+          elif [[ -f '/etc/redis/default.conf.example' ]]; then
+            redis_conf_src='/etc/redis/default.conf.example'
+          else
+            echo "ERROR - No Redis configuration template found in /etc/redis/. Please create /etc/redis/zammad.conf manually."
+            echo "Alternatively, point Zammad to an existing Redis server with: zammad config:set REDIS_URL=redis://your.redis.server:6379"
+            echo "Please fix these issues, then run the package installation again."
+            exit 1
+          fi
+          cp "${redis_conf_src}" /etc/redis/zammad.conf
+        fi
         echo "# Ensuring correct file permissions for /etc/redis/zammad.conf."
         [[ $(stat -c "%U %G" /etc/redis/zammad.conf) == "root redis" ]] || chown root:redis /etc/redis/zammad.conf
         REDIS_SERVICE_NAME=redis@zammad.service
@@ -282,45 +323,16 @@ function enforce_redis () {
   fi
 }
 
-function setup_elasticsearch () {
-  echo "# Configuring Elasticsearch..."
+# Every Elasticsearch version Zammad still supports ships the 'ingest-attachment' plugin as part of
+#   its core, so there is nothing left to set up here besides reading the configured server.
+function detect_elasticsearch () {
+  echo "# Checking Elasticsearch configuration..."
 
   ES_CONNECTION="$(zammad run rails r "puts '',Setting.get('es_url')"| tail -n 1 2>> /dev/null)"
 
   if [ -z "${ES_CONNECTION}" ]; then
     echo "-- Nevermind, no es_url is set, leaving Elasticsearch untouched ...!"
     echo "-- The above is all right if you don't want to use Elasticsearch (locally) - if this is not intended, consult https://docs.zammad.org !"
-    return 0
-  fi
-
-  if [[ "$(/usr/share/elasticsearch/bin/elasticsearch --version| cut -c 10)" -gt 7 ]]; then
-    # We're skipping the plugin reinstallation process for ES 8+ as it's part of the ES core
-    return 0
-  fi
-
-  if [ -n "$(/usr/share/elasticsearch/bin/elasticsearch-plugin list | grep mapper-attachments)" ]; then
-    REBUILD_ES_SEARCHINDEX="yes"
-
-    echo "# Deleting old elasticsearch index..."
-    zammad run rake zammad:searchindex:drop
-
-    yes | /usr/share/elasticsearch/bin/elasticsearch-plugin -s remove mapper-attachments
-
-  elif [ -n "$(/usr/share/elasticsearch/bin/elasticsearch-plugin list | grep ingest-attachment)" ]; then
-    yes | /usr/share/elasticsearch/bin/elasticsearch-plugin -s remove ingest-attachment
-  fi
-
-  yes | /usr/share/elasticsearch/bin/elasticsearch-plugin -s install ingest-attachment
-
-  if [ "${ES_CONNECTION}" == "http://127.0.0.1:9200" ] || [ "${ES_CONNECTION}" == "http://localhost:9200" ]; then
-    ${INIT_CMD} restart elasticsearch
-  else
-    echo -e "\n It seems you're running an external Elasticsearch server on ${ES_CONNECTION}"
-    echo -e "\n We'll not touch your Elasticsearch on the local and remote system."
-    echo -e "\n Please get sure to install the 'ingest-attachment' plugin on your Elasticsearch server by:"
-    echo -e "/usr/share/elasticsearch/bin/elasticsearch-plugin -s install ingest-attachment"
-    echo -e "\nAfter this you might need to rebuild the searchindex by:"
-    echo -e "zammad run rake zammad:searchindex:rebuild"
   fi
 }
 
@@ -365,6 +377,8 @@ function zammad_packages_reinstall_all () {
 function update_or_install () {
 
   if [ -f ${ZAMMAD_DIR}/config/database.yml ]; then
+    remove_deprecated_files
+
     echo "# Clear cache..."
     zammad run rails r Rails.cache.clear
 
@@ -385,7 +399,7 @@ function update_or_install () {
     initialise_database
   fi
 
-  setup_elasticsearch
+  detect_elasticsearch
 
   elasticsearch_searchindex_rebuild
 
@@ -394,11 +408,22 @@ function update_or_install () {
 }
 
 function set_env_vars () {
-  zammad config:set RUBY_MALLOC_ARENA_MAX=${ZAMMAD_RUBY_MALLOC_ARENA_MAX:=2}
+  zammad config:set MALLOC_ARENA_MAX=${ZAMMAD_RUBY_MALLOC_ARENA_MAX:=2}
   zammad config:set RUBY_GC_MALLOC_LIMIT=${ZAMMAD_RUBY_GC_MALLOC_LIMIT:=1077216}
   zammad config:set RUBY_GC_MALLOC_LIMIT_MAX=${ZAMMAD_RUBY_GC_MALLOC_LIMIT_MAX:=2177216}
   zammad config:set RUBY_GC_OLDMALLOC_LIMIT=${ZAMMAD_RUBY_GC_OLDMALLOC_LIMIT:=2177216}
   zammad config:set RUBY_GC_OLDMALLOC_LIMIT_MAX=${ZAMMAD_RUBY_GC_OLDMALLOC_LIMIT_MAX:=3000100}
+
+  # Use jemalloc as memory allocator if available, as recommended by Rails.
+  # Opt out via "zammad config:set ZAMMAD_USE_JEMALLOC=no".
+  if [[ "$(zammad config:get ZAMMAD_USE_JEMALLOC)" == "no" ]]; then
+    if [[ "$(zammad config:get LD_PRELOAD)" == "libjemalloc.so.2" ]]; then
+      zammad config:unset LD_PRELOAD
+    fi
+  elif ldconfig -p | grep -q libjemalloc.so.2; then
+    zammad config:set LD_PRELOAD=libjemalloc.so.2
+  fi
+
   if [[ "$(zammad config:get RAILS_LOG_TO_STDOUT)" == "enabled" ]];then
     echo 'Setting default Logging to file, set via "zammad config:set RAILS_LOG_TO_STDOUT=true" if you want to log to STDOUT!'
     zammad config:set RAILS_LOG_TO_STDOUT=
@@ -420,8 +445,11 @@ function final_message () {
     echo -e "	firewall-cmd --zone=public --add-service=https --permanent"
     echo -e "	firewall-cmd --reload\n"
   elif [ "${OS}" == "SUSE" ]; then
-    echo -e "\n Make sure that the firewall is not blocking port 80 & 443!\n"
-    echo -e "Use 'yast firewall' or 'SuSEfirewall2' commands to configure it"
+    echo -e "\n Remember to enable firewall rules!\n"
+    echo -e "Use the following commands:"
+    echo -e "	firewall-cmd --zone=public --add-service=http --permanent"
+    echo -e "	firewall-cmd --zone=public --add-service=https --permanent"
+    echo -e "	firewall-cmd --reload\n"
   fi
   echo -e "####################################################################################"
 }

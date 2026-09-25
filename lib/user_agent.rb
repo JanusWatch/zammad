@@ -167,14 +167,16 @@ class UserAgent
     end
 
     record = {
-      direction: 'out',
-      facility:  options[:log][:facility],
-      url:       url,
-      status:    response_data[:code],
-      ip:        nil,
-      request:   request_data,
-      response:  response_data,
-      method:    request.method,
+      direction:      'out',
+      facility:       options[:log][:facility],
+      url:            url,
+      status:         response_data[:code],
+      ip:             nil,
+      request:        request_data,
+      response:       response_data,
+      method:         request.method,
+      # Lets the log point back at what caused the request; the caller passes the record.
+      related_object: options[:log][:related_object],
     }
     HttpLog.create(record)
   end
@@ -299,7 +301,8 @@ class UserAgent
 
     if options[:validate_safety]
       validate_safety_options = options[:validate_safety].is_a?(Hash) ? options[:validate_safety] : nil
-      HostnameSafetyCheck.validate!(uri.hostname, **validate_safety_options)
+      resolved_ip = HostnameSafetyCheck.validate!(uri.hostname, **validate_safety_options)
+      http.ipaddr = resolved_ip if !http.proxy?
     end
 
     # set headers

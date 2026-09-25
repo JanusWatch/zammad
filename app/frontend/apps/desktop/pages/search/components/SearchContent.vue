@@ -2,7 +2,7 @@
 
 <script setup lang="ts">
 import { watchThrottled } from '@vueuse/core'
-import { isEqual } from 'lodash-es'
+import { debounce, isEqual } from 'lodash-es'
 import { storeToRefs } from 'pinia'
 import {
   computed,
@@ -42,7 +42,7 @@ import { useTicketBulkEdit } from '#desktop/components/Ticket/TicketBulkEditFlyo
 import { useElementScroll } from '#desktop/composables/useElementScroll.ts'
 import { usePage } from '#desktop/composables/usePage.ts'
 import { useTaskbarTab } from '#desktop/entities/user/current/composables/useTaskbarTab.ts'
-import type { TaskbarTabContext } from '#desktop/entities/user/current/types.ts'
+import { useTaskbarTabContext } from '#desktop/entities/user/current/composables/useTaskbarTabContext.ts'
 import SearchControls from '#desktop/pages/search/components/SearchControls.vue'
 import SearchEmptyMessage from '#desktop/pages/search/components/SearchEmptyMessage.vue'
 import { useDetailSearchCache } from '#desktop/pages/search/composables/useDetailSearchCache.ts'
@@ -56,6 +56,7 @@ import { decodeFilters, getSearchQueryWithoutFilters } from '../utils/searchFilt
 
 const MAX_ITEMS = 2000
 const PAGE_SIZE = 30
+const SEARCH_TERM_DEBOUNCE_TIME = 500
 
 const props = defineProps<{
   searchTerm?: string
@@ -64,9 +65,20 @@ const props = defineProps<{
 const route = useRoute()
 const router = useRouter()
 
-const selectedEntity = ref(
-  (route.query.entity as EnumSearchableModels) ?? EnumSearchableModels.Ticket,
-)
+const { sortedByNamePlugins, searchPluginNames } = useSearchPlugins()
+
+// The entity a /search URL asks for, or Ticket. An `?entity=` naming something that is no plugin —
+//   an unknown model, or one this user may not search — falls back instead of selecting a tab with
+//   nothing behind it.
+const routeEntity = () => {
+  const requested = route.query.entity as EnumSearchableModels | undefined
+
+  if (requested && searchPluginNames.value.includes(requested)) return requested
+
+  return EnumSearchableModels.Ticket
+}
+
+const selectedEntity = ref(routeEntity())
 
 const {
   filtersByEntity,
@@ -85,8 +97,6 @@ const {
 } = useSearchAdvancedFilters(selectedEntity)
 
 const offset = ref(0)
-
-const { sortedByNamePlugins, searchPluginNames } = useSearchPlugins()
 
 const scrollContainerElement = useTemplateRef('scroll-container')
 const searchControlsInstance = useTemplateRef('search-controls')
@@ -110,7 +120,7 @@ watch([selectedEntity, currentFiltersQueryParams], ([entity]) => {
 const syncFiltersFromRoute = () => {
   if (!selectedEntityHasFiltersEnabled.value) return
 
-  const queryEntity = (route.query.entity as EnumSearchableModels) ?? EnumSearchableModels.Ticket
+  const queryEntity = routeEntity()
 
   // Static attributes alone (e.g. ticket.created_by_id) don't form a usable
   // validation schema for deep-link decoding — they'd drop legitimate route
@@ -136,8 +146,7 @@ onBeforeMount(syncFiltersFromRoute)
 // On a fresh deep-link the object-attribute schema may still be loading, so
 // onBeforeMount's decode runs against an incomplete schema — re-sync once it's
 // ready. Later reactivations already see a populated schema.
-const initialQueryEntity =
-  (route.query.entity as EnumSearchableModels) ?? EnumSearchableModels.Ticket
+const initialQueryEntity = routeEntity()
 if (entityFieldsLoadingByEntity.value[initialQueryEntity]) {
   watch(
     () => entityFieldsLoadingByEntity.value[initialQueryEntity],
@@ -148,21 +157,57 @@ if (entityFieldsLoadingByEntity.value[initialQueryEntity]) {
   )
 }
 
-const modelSearchTerm = computed({
-  get: () => props.searchTerm,
-  set: (searchTerm) => {
-    const url = buildSearchDeepLink({
+// The search input holds its own immediate value, so typing stays responsive
+// while the route — the single source of truth for the queries, the taskbar
+// state and the page title — only follows once the user pauses. Writing the
+// term to the route on every keystroke meant a history entry, a detail search
+// and a counts request per character.
+const searchInputTerm = ref(props.searchTerm ?? '')
+
+const pushSearchTerm = (searchTerm: string) => {
+  if (searchTerm === (props.searchTerm ?? '')) return
+
+  router.push(
+    buildSearchDeepLink({
       searchTerm,
       entity: selectedEntity.value,
       filters: currentFilters.value,
       baseQuery: getSearchQueryWithoutFilters(router.currentRoute.value.query),
-    })
+    }),
+  )
+}
 
-    router.push(url)
+const debouncedPushSearchTerm = debounce(pushSearchTerm, SEARCH_TERM_DEBOUNCE_TIME)
+
+// Route → input: deep links, browser history and cross-tab sync all arrive here.
+watch(
+  () => props.searchTerm,
+  (searchTerm) => {
+    debouncedPushSearchTerm.cancel()
+    searchInputTerm.value = searchTerm ?? ''
+  },
+)
+
+const modelSearchTerm = computed({
+  get: () => searchInputTerm.value,
+  set: (searchTerm) => {
+    const value = searchTerm ?? ''
+
+    searchInputTerm.value = value
+
+    // Clearing the input is an explicit action rather than typing: apply it
+    // right away and drop any term that was still pending.
+    if (!value) {
+      debouncedPushSearchTerm.cancel()
+      pushSearchTerm(value)
+      return
+    }
+
+    debouncedPushSearchTerm(value)
   },
 })
 
-const currentSearchTerm = computed(() => modelSearchTerm.value ?? '')
+const currentSearchTerm = computed(() => props.searchTerm ?? '')
 
 const notVisibleSearchEntities = computed(() =>
   searchPluginNames.value.filter(
@@ -172,19 +217,13 @@ const notVisibleSearchEntities = computed(() =>
   ),
 )
 
-const tabContext = computed<TaskbarTabContext>((currentContext) => {
-  const newContext = {
-    query: currentSearchTerm.value,
-    model: selectedEntity.value,
-    formIsDirty: hasActiveFilters.value,
-    filters: stringifyQuery(currentFiltersQueryParams.value),
-    filterCount: filterCount.value,
-  }
-
-  if (currentContext && isEqual(newContext, currentContext)) return currentContext
-
-  return newContext
-})
+const tabContext = useTaskbarTabContext(() => ({
+  query: currentSearchTerm.value,
+  model: selectedEntity.value,
+  formIsDirty: hasActiveFilters.value,
+  filters: stringifyQuery(currentFiltersQueryParams.value),
+  filterCount: filterCount.value,
+}))
 
 const { currentTaskbarTab, currentTaskbarTabId, currentTaskbarTabUpdate } =
   useTaskbarTab(tabContext)
@@ -307,6 +346,8 @@ const { pageActive } = usePage({
   },
   onDeactivated: () => {
     searchTaskbarSubscriptionActive.value = false
+    // A pending term must not navigate once another taskbar tab is on screen.
+    debouncedPushSearchTerm.cancel()
   },
 })
 
@@ -371,15 +412,19 @@ const refetchQueries = () => {
   searchCountsQuery.refetch()
 }
 
+// Always a registered plugin: `routeEntity` never lets `selectedEntity` hold anything else. The
+//   optional chaining and the empty-list default are the belt to that braces - `detailSearchHeaders`
+//   and `detailSearchComponent` are optional on SearchPlugin, so a plugin that omits them must
+//   render nothing rather than throw.
 const searchPlugin = computed(() => searchPluginByName[selectedEntity.value])
 
 const { config } = storeToRefs(useApplicationStore())
 
-const detailSearchHeaders = computed(() =>
-  typeof searchPlugin.value.detailSearchHeaders === 'function'
-    ? searchPlugin.value.detailSearchHeaders(config.value)
-    : searchPlugin.value.detailSearchHeaders,
-)
+const detailSearchHeaders = computed(() => {
+  const headers = searchPlugin.value?.detailSearchHeaders
+
+  return typeof headers === 'function' ? headers(config.value) : (headers ?? [])
+})
 
 // Per-entity counts, accumulated from both queries. Keeping previous entries
 // across an entity switch / refetch is what prevents tab badges from briefly
@@ -387,7 +432,12 @@ const detailSearchHeaders = computed(() =>
 const searchEntityCurrentCounts = ref<Partial<Record<EnumSearchableModels, number>>>({})
 
 watch(searchResult, (result) => {
-  if (result) searchEntityCurrentCounts.value[selectedEntity.value] = result.search.totalCount
+  // Keep the previous result while the next response is in flight: under
+  // cache-and-network Apollo can momentarily yield `undefined`, and copying that
+  // through would flash the list empty until the new result arrives.
+  if (!result) return
+
+  searchEntityCurrentCounts.value[selectedEntity.value] = result.search.totalCount
   currentSearchResult.value = result
 })
 
@@ -399,7 +449,14 @@ watch(currentSearchCountsResult, (countsResult) => {
   })
 })
 
-const isLoading = detailSearchQuery.loadingWithoutCachedResult()
+// Show the loading state only when there is nothing to display yet (first
+// search, entity switch). While a previous result is remembered we keep it on
+// screen instead of swapping in the skeleton — otherwise the list would flash
+// hidden on every search-term / filter change while the next response loads.
+const detailSearchLoading = detailSearchQuery.loadingWithoutCachedResult()
+const isLoading = computed(
+  () => currentSearchResult.value === undefined && detailSearchLoading.value,
+)
 
 // Real total for the visible entity — not just the items loaded into the table.
 const searchResultTotalCount = computed(() => currentSearchResult.value?.search.totalCount ?? 0)
@@ -444,6 +501,11 @@ const resort = (column: string, direction: EnumOrderDirection) => {
 }
 
 const fetchNextPage = async () => {
+  // Don't paginate a retained (stale) result while the new first page is still
+  // loading — it would fetch page 2 of the new query before page 1, mixing or
+  // skipping results.
+  if (detailSearchLoading.value) return
+
   offset.value += PAGE_SIZE
 
   loadingNewPage.value = true
@@ -504,7 +566,6 @@ const setNewSearchState = (searchTerm: string) => {
   checkedTicketIds.value.clear()
   selectAllActive.value = false
   bulkContext.value = { searchQuery: searchTerm, searchFilter: currentFilterSelector.value }
-  currentSearchResult.value = undefined
 }
 
 // Conditions under which each query needs to be running. Detail looks at
@@ -522,6 +583,12 @@ watch(
   (current, previous) => {
     setNewSearchState(current.search)
 
+    // Clear the displayed result only on entity switch — the previous entity's
+    // rows can't render under the new entity's columns. For search-term / filter
+    // changes we keep the previous result so the list doesn't flash empty while
+    // the next response is in flight.
+    if (previous && previous.onlyIn !== current.onlyIn) currentSearchResult.value = undefined
+
     if (!previous) return
 
     resetPagination({
@@ -529,26 +596,6 @@ watch(
       onlyIn: previous.onlyIn,
       filter: previous.filter,
     })
-
-    // After a stop/start cycle with the same entity (e.g. clear search term then
-    // retype the same term), Vue Apollo retains the cached value in the result ref
-    // without triggering a reactive change. The watch(searchResult) callback therefore
-    // won't fire and currentSearchResult would be stuck on undefined, so we sync manually!
-    if (previous.onlyIn === current.onlyIn)
-      nextTick(() => {
-        // Only restore when the query is still supposed to be running — i.e. the
-        // user retyped the same term.  If shouldDetailRun is false (search was
-        // cleared) we must not re-populate from the retained cache value.
-        if (
-          shouldDetailRun.value &&
-          currentSearchResult.value === undefined &&
-          searchResult.value !== undefined
-        ) {
-          currentSearchResult.value = searchResult.value
-          searchEntityCurrentCounts.value[selectedEntity.value] =
-            searchResult.value.search.totalCount
-        }
-      })
   },
   { immediate: true },
 )
@@ -659,10 +706,10 @@ setOnSuccessCallback(() => {
         class="relative grow overflow-y-auto px-4 pb-4"
       >
         <component
-          :is="searchPlugin.detailSearchComponent"
+          :is="searchPlugin?.detailSearchComponent"
           :key="selectedEntity"
           :table-id="`search-${selectedEntity}-table`"
-          :caption="`Search result for: ${searchPlugin.label}`"
+          :caption="$t('Search result for: %s', searchPlugin?.label)"
           :items="searchResultItems"
           :headers="detailSearchHeaders"
           :total-count="searchResultTotalCount"

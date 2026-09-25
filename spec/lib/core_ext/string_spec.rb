@@ -200,6 +200,19 @@ RSpec.describe String do
       TEXT
     end
 
+    it 'strips <a> elements to plain text without included references' do
+      expect(<<~HTML.chomp.html2text(true)).to eq(<<~TEXT.chomp)
+
+        <div><a href="https://zammad.org">Best Tool of the World</a>
+        some other text</div>
+        <div><a href="https://zammad.org">https://zammad.org</a></div>
+        <div>
+      HTML
+        Best Tool of the World (######LINKRAW:https://zammad.org######)some other text
+        ######LINKEXT:https://zammad.org/TEXT:https://zammad.org######
+      TEXT
+    end
+
     context 'with link_style: :markdown option' do
       it 'converts <a> elements to markdown style links' do
         html = '<p>Check out <a href="https://example.com">our website</a> for more info.</p>'
@@ -234,6 +247,23 @@ RSpec.describe String do
       it 'strips HTML tags from link text' do
         html = '<p>Check <a href="https://example.com"><strong>bold link</strong></a> out.</p>'
         expect(html.html2text(false, false, link_style: :markdown)).to eq('Check [bold link](https://example.com) out.')
+      end
+    end
+
+    context 'with link_style: :plain option' do
+      it 'converts <a> elements to plain text (with text)' do
+        html = '<p>Check out <a href="https://example.com">our website</a> for more info.</p>'
+        expect(html.html2text(link_style: :plain)).to eq('Check out our website for more info.')
+      end
+
+      it 'converts <a> elements to plain link (with link)' do
+        html = '<p>Check out our website at <a href="https://example.com"> </a> for more info.</p>'
+        expect(html.html2text(link_style: :plain)).to eq('Check out our website at https://example.com for more info.')
+      end
+
+      it 'strips empty <a> elements' do
+        html = '<p>Check out our website <a href=" "> </a> for more info.</p>'
+        expect(html.html2text(link_style: :plain)).to eq('Check out our website for more info.')
       end
     end
 
@@ -1988,6 +2018,28 @@ RSpec.describe String do
 
         it 'uses the detected input encoding instead' do
           expect(string.utf8_encode(from: 'gb2312')).to eq(original_string)
+        end
+      end
+
+      # regression test for issue 6340
+      context 'with a from: option that Ruby cannot resolve' do
+        # Binary, like the mail parser hands it over - otherwise the encoding of
+        # the string itself would be a viable candidate and mask the fallback.
+        subject(:string) { original_string.encode(input_encoding).b }
+
+        let(:original_string) { 'Добрый день' }
+        let(:input_encoding)  { Encoding::CP949 }
+
+        it 'resolves the charset label via the mail gem' do
+          expect { Encoding.find('ks_c_5601-1987') }
+            .to raise_error(ArgumentError)
+
+          expect(string.utf8_encode(from: 'ks_c_5601-1987')).to eq(original_string)
+        end
+
+        it 'falls back to encoding detection if the mail gem cannot resolve it either' do
+          expect(string.utf8_encode(from: 'totally-unknown-charset'))
+            .to eq(string.utf8_encode)
         end
       end
     end

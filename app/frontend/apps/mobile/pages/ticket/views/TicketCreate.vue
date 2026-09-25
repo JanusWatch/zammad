@@ -16,7 +16,6 @@ import { useTicketCreate } from '#shared/entities/ticket/composables/useTicketCr
 import { useTicketCreateArticleType } from '#shared/entities/ticket/composables/useTicketCreateArticleType.ts'
 import { useTicketCreateView } from '#shared/entities/ticket/composables/useTicketCreateView.ts'
 import { useTicketFormOrganizationHandler } from '#shared/entities/ticket/composables/useTicketFormOrganizationHandler.ts'
-import { useTicketSignature } from '#shared/entities/ticket/composables/useTicketSignature.ts'
 import type { TicketFormData } from '#shared/entities/ticket/types.ts'
 import { useUserQuery } from '#shared/entities/user/graphql/queries/user.api.ts'
 import { defineFormSchema } from '#shared/form/defineFormSchema.ts'
@@ -41,7 +40,7 @@ const router = useRouter()
 
 // TODO: Add meta header with selected ticket create article type.
 
-const { canSubmit, form, node, isDirty, formSubmit } = useForm()
+const { canSubmit, form, node, isDirty, formSubmit, values } = useForm()
 
 const {
   multiStepPlugin,
@@ -73,6 +72,22 @@ const redirectAfterCreate = (internalId?: number) => {
 }
 
 const { createTicket, isTicketCustomer } = useTicketCreate(form, redirectAfterCreate)
+
+const submitTicket = async (formData: FormSubmitData<TicketFormData>) => {
+  const result = await createTicket(formData)
+
+  // After a failed mutation with field errors, navigate to the first step that
+  // contains an error so the user sees it without having to go back manually.
+  await nextTick()
+  const stepWithErrors = stepNames.value.find(
+    (stepName) => (allSteps.value[stepName]?.errorCount ?? 0) > 0,
+  )
+  if (stepWithErrors && stepWithErrors !== activeStep.value) {
+    setMultiStep(stepWithErrors)
+  }
+
+  return result
+}
 
 const getFormSchemaGroupSection = (
   stepName: string,
@@ -311,6 +326,7 @@ const ticketArticleMessageSection = getFormSchemaGroupSection(
                 organizationNodeName: 'organization_id',
               },
             },
+            signatureEnabled: computed(() => values.value.articleSenderType === 'email-out'),
           },
           triggerFormUpdater: false,
         },
@@ -427,8 +443,6 @@ onBeforeRouteLeave(async () => {
   return confirmed
 })
 
-const { signatureHandling } = useTicketSignature()
-
 const ticketDuplicateDetectionDialog = useDialog({
   name: 'duplicate-ticket-detection',
   component: () => import('#mobile/components/Ticket/TicketDuplicateDetectionDialog.vue'),
@@ -504,7 +518,6 @@ export default {
       :schema="formSchema"
       :handlers="[
         useTicketFormOrganizationHandler(),
-        signatureHandling('body'),
         useTicketDuplicateDetectionHandler(showTicketDuplicateDetectionDialog),
       ]"
       :flatten-form-groups="Object.keys(allSteps)"
@@ -513,7 +526,7 @@ export default {
       :form-updater-id="EnumFormUpdaterId.FormUpdaterUpdaterTicketCreate"
       should-autofocus
       use-object-attributes
-      @submit="createTicket($event as FormSubmitData<TicketFormData>)"
+      @submit="submitTicket($event as FormSubmitData<TicketFormData>)"
     />
   </div>
   <footer

@@ -117,7 +117,7 @@ class Channel::Driver::Smtp < Channel::Driver::BaseEmailOutbound
   private
 
   def server_identifier(options)
-    "'#{options[:address]}' (port #{options[:port]})"
+    options[:address].to_s
   end
 
   def deliver_mail_notification_silence?(e, mail)

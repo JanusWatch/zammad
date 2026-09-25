@@ -26,6 +26,7 @@ module Gql::Types::Ticket
     field :content_type, String, null: false
     field :body, String, null: false, description: 'Raw body as saved in the database.'
     field :body_with_urls, String, null: false, description: 'Body with cid: URLs replaced for inline images in HTML articles.'
+    field :body_rendering_error, Boolean, null: false, description: 'True when the body could not be rendered due to HTML processing issues and contains an untranslated error message.'
     field :internal, Boolean, null: false
     field :detected_language, String
 
@@ -36,6 +37,11 @@ module Gql::Types::Ticket
     field :attachments, [Gql::Types::StoredFileType, { null: false }], null: false, description: 'All attached files as stored in the database.'
     field :attachments_without_inline, [Gql::Types::StoredFileType, { null: false }], null: false, description: 'Attachments for display, with inline images filtered out.'
 
+    scoped_fields do
+      field :time_unit, Float, description: 'The accounted time of this article.'
+      field :accounted_time_type, Gql::Types::Ticket::TimeAccounting::TypeType, description: 'The activity type of the accounted time of this article.'
+    end
+
     internal_fields do
       field :highlighted_texts, [Gql::Types::Ticket::Article::HighlightedTextType]
     end
@@ -45,6 +51,10 @@ module Gql::Types::Ticket
 
     def body_with_urls
       display_article[:body]
+    end
+
+    def body_rendering_error
+      @object.body_rendering_error
     end
 
     def attachments_without_inline
@@ -63,7 +73,26 @@ module Gql::Types::Ticket
       @object.preferences&.dig('highlight')&.split('|')&.drop(1) || []
     end
 
+    def time_unit
+      time_accounting.then { |elem| elem&.time_unit }
+    end
+
+    def accounted_time_type
+      time_accounting.then do |elem|
+        next if elem&.type_id.blank?
+
+        Gql::RecordLoader.for(::Ticket::TimeAccounting::Type).load(elem.type_id)
+      end
+    end
+
     private
+
+    # Batched, so listing many articles of the same ticket does not cause one query per article.
+    def time_accounting
+      Gql::RecordLoader
+        .for(::Ticket::TimeAccounting, column: :ticket_article_id)
+        .load(@object.id)
+    end
 
     def display_article
       @display_article ||= begin

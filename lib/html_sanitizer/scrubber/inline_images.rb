@@ -19,7 +19,7 @@ class HtmlSanitizer
         case node['src']
         when %r{^(data:image/(jpg|jpeg|png);base64,.+?)$}i
           process_inline_image(node, $1)
-        when %r{^(?:/api/v1/attachments/)(\d+)$}
+        when %r{\A(?:/api/v1/attachments/)(\d+)\z}
           process_uploaded_image(node, $1)
         when %r{users/image/(.+)}
           process_user_avatar_image(node, $1)
@@ -53,6 +53,12 @@ class HtmlSanitizer
       def process_uploaded_image(node, attachment_id)
         cid        = generate_cid
         attachment = Store.find(attachment_id)
+
+        # Check if the current user is present
+        # To allow operations in userless context, e.g. command line
+        if UserInfo.current_user_id
+          Pundit.authorize(UserInfo.current_user, attachment, :show?)
+        end
 
         @attachments_inline.push attachment(attachment.content, attachment.filename, cid, mime_type: attachment.preferences['Mime-Type'], content_type: attachment.preferences['Content-Type'])
         node['src'] = "cid:#{cid}"

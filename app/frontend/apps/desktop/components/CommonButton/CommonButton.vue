@@ -17,8 +17,12 @@ export interface Props {
   icon?: string
   suffixIcon?: string
   iconClass?: string
-  tooltip?: string
   noTruncate?: boolean
+  /**
+   * Prop needs to be set when we use a non template style e.g formkit schema
+   * else prefer to use directive binding
+   */
+  tooltip?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -109,18 +113,19 @@ const sizeClasses = computed(() => {
 })
 
 const paddingClasses = computed(() => {
-  if (props.size === 'large' && props.icon) return ['p-2']
-
-  if (props.icon) return ['p-1']
+  if (props.icon) {
+    if (props.size === 'large') return ['p-2']
+    return ['p-1']
+  }
 
   switch (props.size) {
     case 'large':
-      return ['px-4', 'py-2.5']
+      return ['px-4', 'py-2.5', 'gap-x-1.5']
     case 'medium':
-      return ['px-3', 'py-2']
+      return ['px-3', 'py-2', 'gap-x-1.25']
     case 'small':
     default:
-      return ['px-2.5', 'py-1.5']
+      return ['px-2.5', 'py-1.5', 'gap-x-1']
   }
 })
 
@@ -158,8 +163,8 @@ const iconSizeClass = computed(() => {
 
 <template>
   <button
-    v-tooltip="tooltip ? $t(tooltip) : undefined"
-    class="inline-flex h-min min-h-min shrink-0 flex-nowrap items-center justify-center gap-x-1 border-0 font-normal shadow-none transition-transform duration-200 hover:outline-1 hover:outline-offset-1 hover:outline-blue-600 focus:outline-0 focus:hover:outline-1 focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-blue-800 focus:active:scale-[95%] dark:hover:outline-blue-900"
+    v-tooltip="tooltip ? $t(tooltip) : null"
+    class="inline-flex h-min min-h-min shrink-0 flex-nowrap items-center justify-center border-0 font-normal shadow-none transition-transform duration-200 hover:outline-1 hover:outline-offset-1 hover:outline-blue-600 focus:outline-0 focus:hover:outline-1 focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-blue-800 focus:active:scale-[95%] dark:hover:outline-blue-900"
     :class="[
       ...variantClasses,
       ...sizeClasses,

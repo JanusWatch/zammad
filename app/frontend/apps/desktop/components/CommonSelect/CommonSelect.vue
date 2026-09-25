@@ -23,11 +23,13 @@ import testFlags from '#shared/utils/testFlags.ts'
 
 import CommonLoader from '#desktop/components/CommonLoader/CommonLoader.vue'
 import { useTransitionCollapse } from '#desktop/composables/useTransitionCollapse.ts'
+import { useTransitionConfig } from '#desktop/composables/useTransitionConfig.ts'
 
 import CommonSelectItem from './CommonSelectItem.vue'
 import { useCommonSelect } from './useCommonSelect.ts'
 
 import type { CommonSelectInternalInstance, DropdownOptionsAction } from './types.ts'
+import type { Component } from 'vue'
 
 type ComplexSelectValue = { value: SelectValue; label: string }
 
@@ -52,6 +54,18 @@ export interface Props {
   noOptionsLabelTranslation?: boolean
   filter?: string
   optionIconComponent?: ConcreteComponent
+  /**
+   * Replaces the whole option row, instead of only its icon.
+   *   Must implement the `CommonSelectOptionProps` contract, defaults to `CommonSelectItem`.
+   */
+  optionComponent?: ConcreteComponent
+  /**
+   * Lays the options out as a wrapping grid, instead of a vertical list. Intended to be
+   *   combined with a tile-shaped `optionComponent`, which determines the size of a single
+   *   cell, and therefore the resulting number of columns. Since the tiles sit flush against
+   *   the clipped dropdown edges, they should use an inset focus indicator.
+   */
+  gridLayout?: boolean
   initiallyEmpty?: boolean
   emptyInitialLabelText?: string
   actions?: DropdownOptionsAction[]
@@ -203,8 +217,16 @@ onUnmounted(() => {
 
 defineExpose(exposedInstance)
 
+const OptionComponent = computed<Component>(() => props.optionComponent ?? CommonSelectItem)
+
 // https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Roles/listbox_role#keyboard_interactions
-useTraverseOptions(dropdownElement, { direction: 'vertical' })
+useTraverseOptions(dropdownElement, {
+  // In grid layout the options are traversed along their rows, wrapping around at the end.
+  direction: props.gridLayout ? 'horizontal' : 'vertical',
+  // Wrapping around must not land on the actions in the header or on any footer content,
+  //   they are not options.
+  filterOption: (element) => !props.gridLayout || element.getAttribute('role') === 'option',
+})
 
 // - Type-ahead is recommended for all listboxes, especially those with more than seven options
 useFocusWhenTyping(dropdownElement)
@@ -355,8 +377,8 @@ const emptyLabelText = computed(() => {
   return props.filter ? __('No results found') : props.emptyInitialLabelText
 })
 
-const { collapseDuration, collapseEnter, collapseAfterEnter, collapseLeave } =
-  useTransitionCollapse()
+const { transitions } = useTransitionConfig()
+const { collapseEnter, collapseAfterEnter, collapseLeave } = useTransitionCollapse()
 
 const dropdownActions = computed(() => {
   return [
@@ -416,8 +438,8 @@ const goToChildPage = ({ option, noFocus }: { option: AutoCompleteOption; noFocu
   />
   <Teleport to="body">
     <Transition
-      :name="isTargetVisible ? 'collapse' : 'none'"
-      :duration="collapseDuration"
+      :name="transitions.collapse"
+      :appear="isTargetVisible"
       @enter="collapseEnter"
       @after-enter="collapseAfterEnter"
       @leave="collapseLeave"
@@ -436,6 +458,9 @@ const goToChildPage = ({ option, noFocus }: { option: AutoCompleteOption; noFocu
             :class="{
               'rounded-t-lg border-t': hasDirectionUp,
               'rounded-b-lg border-b': !hasDirectionUp,
+              // Grid cells cannot round themselves, since their position within the layout is
+              //   not known upfront, therefore the container has to clip them.
+              'overflow-hidden': gridLayout,
             }"
           >
             <div
@@ -480,15 +505,20 @@ const goToChildPage = ({ option, noFocus }: { option: AutoCompleteOption; noFocu
               tabindex="-1"
               class="w-full overflow-y-auto"
             >
-              <Transition name="none" mode="out-in">
-                <div v-if="options.length">
-                  <CommonSelectItem
+              <Transition mode="out-in">
+                <div v-if="options.length" role="none" :class="{ 'flex flex-wrap': gridLayout }">
+                  <component
+                    :is="OptionComponent"
                     v-for="option in filter ? highlightedOptions : options"
                     :key="String(option.value)"
                     :class="{
                       'first:rounded-t-lg':
-                        hasDirectionUp && !isChildPage && (!multiple || !hasMoreSelectableOptions),
-                      'last:rounded-b-lg': !hasDirectionUp,
+                        !gridLayout &&
+                        hasDirectionUp &&
+                        !isChildPage &&
+                        !dropdownActions.length &&
+                        (!multiple || !hasMoreSelectableOptions),
+                      'last:rounded-b-lg': !gridLayout && !hasDirectionUp,
                     }"
                     :selected="isCurrentValue(option.value)"
                     :multiple="multiple"
@@ -501,22 +531,8 @@ const goToChildPage = ({ option, noFocus }: { option: AutoCompleteOption; noFocu
                   />
                 </div>
 
-                <div v-else-if="isLoading" class="flex items-center">
-                  <CommonLoader
-                    v-if="!options.length"
-                    class="ltr:ml-2 rtl:mr-2"
-                    size="small"
-                    loading
-                  />
-                  <CommonSelectItem
-                    :option="{
-                      label: __('Loading…'),
-                      value: '',
-                      disabled: true,
-                    }"
-                    no-selection-indicator
-                    no-interaction
-                  />
+                <div v-else-if="isLoading" class="px-2.5 py-2.5">
+                  <CommonLoader class="w-full" size="small" loading />
                 </div>
                 <CommonSelectItem
                   v-else-if="!options.length"

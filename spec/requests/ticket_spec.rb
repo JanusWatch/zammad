@@ -1856,6 +1856,191 @@ RSpec.describe 'Ticket', type: :request do
       expect(online_notification.reload.seen).to be true
     end
 
+    describe 'X-Zammad-Suppress-Notifications header', performs_jobs: true do
+      let(:other_agent) do
+        create(:agent, :preferencable, groups: [ticket_group], notification_group_ids: [ticket_group.id])
+      end
+      let(:ticket) do
+        create(:ticket, group: ticket_group, owner: other_agent, customer_id: customer.id,
+               updated_by_id: other_agent.id, created_by_id: other_agent.id)
+      end
+      let(:delivered_emails) { [] }
+
+      before do
+        allow(NotificationFactory::Mailer).to receive(:deliver) { |data| delivered_emails << data }
+        ticket # ensure ticket is created before authenticated_as sets up headers
+        TransactionDispatcher.reset
+        clear_jobs
+      end
+
+      it 'enqueues the transaction job with disable_notification: true when header is set' do
+        authenticated_as(agent)
+
+        put "/api/v1/tickets/#{ticket.id}",
+            params:  { title: 'Updated title' },
+            headers: { 'X-Zammad-Suppress-Notifications' => 'true' },
+            as:      :json
+
+        expect(TransactionJob).to have_been_enqueued.with(anything, hash_including(disable_notification: true)).at_least(:once)
+      end
+
+      it 'enqueues the transaction job without disable_notification when header is absent', :aggregate_failures do
+        authenticated_as(agent)
+
+        put "/api/v1/tickets/#{ticket.id}",
+            params: { title: 'Updated title' },
+            as:     :json
+
+        expect(TransactionJob).to have_been_enqueued.at_least(:once)
+        expect(TransactionJob).not_to have_been_enqueued.with(anything, hash_including(disable_notification: true)).at_least(:once)
+      end
+
+      it 'does not notify the ticket owner when header is set', :aggregate_failures do
+        authenticated_as(agent)
+
+        put "/api/v1/tickets/#{ticket.id}",
+            params:  { title: 'Updated title' },
+            headers: { 'X-Zammad-Suppress-Notifications' => 'true' },
+            as:      :json
+
+        perform_enqueued_jobs(only: TransactionJob)
+
+        expect(response).to have_http_status(:ok)
+        expect(OnlineNotification.where(object_lookup_id: ObjectLookup.by_name('Ticket'), user_id: other_agent.id, o_id: ticket.id)).to be_empty
+        expect(delivered_emails).to be_empty
+      end
+
+      it 'notifies the ticket owner when header is absent', :aggregate_failures do
+        authenticated_as(agent)
+
+        put "/api/v1/tickets/#{ticket.id}",
+            params: { title: 'Updated title' },
+            as:     :json
+
+        perform_enqueued_jobs(only: TransactionJob)
+
+        expect(response).to have_http_status(:ok)
+        expect(OnlineNotification.where(object_lookup_id: ObjectLookup.by_name('Ticket'), user_id: other_agent.id, o_id: ticket.id)).to exist
+        expect(delivered_emails).to include(hash_including(recipient: have_attributes(email: other_agent.email)))
+      end
+
+      it 'does not notify group agents on ticket create when header is set', :aggregate_failures do
+        authenticated_as(agent)
+
+        post '/api/v1/tickets',
+             params:  {
+               title:       'Created with suppressed notifications',
+               group:       ticket_group.name,
+               customer_id: customer.id,
+               article:     { body: 'some body', type: 'note' },
+             },
+             headers: { 'X-Zammad-Suppress-Notifications' => 'true' },
+             as:      :json
+
+        perform_enqueued_jobs(only: TransactionJob)
+
+        expect(response).to have_http_status(:created)
+        expect(OnlineNotification.where(object_lookup_id: ObjectLookup.by_name('Ticket'), user_id: other_agent.id, o_id: json_response['id'])).to be_empty
+        expect(delivered_emails).to be_empty
+      end
+
+      it 'notifies group agents on ticket create when header is absent', :aggregate_failures do
+        authenticated_as(agent)
+
+        post '/api/v1/tickets',
+             params: {
+               title:       'Created without suppressed notifications',
+               group:       ticket_group.name,
+               customer_id: customer.id,
+               article:     { body: 'some body', type: 'note' },
+             },
+             as:     :json
+
+        perform_enqueued_jobs(only: TransactionJob)
+
+        expect(response).to have_http_status(:created)
+        expect(OnlineNotification.where(object_lookup_id: ObjectLookup.by_name('Ticket'), user_id: other_agent.id, o_id: json_response['id'])).to exist
+        expect(delivered_emails).to include(hash_including(recipient: have_attributes(email: other_agent.email)))
+      end
+
+      it 'suppresses notifications on article create when header is set' do
+        authenticated_as(agent)
+
+        post '/api/v1/ticket_articles',
+             params:  { ticket_id: ticket.id, body: 'note', type: 'note', sender: 'Agent' },
+             headers: { 'X-Zammad-Suppress-Notifications' => 'true' },
+             as:      :json
+
+        expect(TransactionJob).to have_been_enqueued.with(anything, hash_including(disable_notification: true)).at_least(:once)
+      end
+
+      it 'suppresses notifications on ticket create when header is set' do
+        authenticated_as(agent)
+
+        post '/api/v1/tickets',
+             params:  { title: 'New ticket', group: ticket_group.name, customer_id: customer.id, article: { body: 'some body' } },
+             headers: { 'X-Zammad-Suppress-Notifications' => 'true' },
+             as:      :json
+
+        expect(TransactionJob).to have_been_enqueued.with(anything, hash_including(disable_notification: true)).at_least(:once)
+      end
+
+      it 'ignores the header for customers — only agents can suppress notifications', :aggregate_failures do
+        authenticated_as(customer)
+
+        post '/api/v1/ticket_articles',
+             params:  { ticket_id: ticket.id, body: 'note', type: 'note', sender: 'Customer' },
+             headers: { 'X-Zammad-Suppress-Notifications' => 'true' },
+             as:      :json
+
+        expect(TransactionJob).to have_been_enqueued.at_least(:once)
+        expect(TransactionJob).not_to have_been_enqueued.with(anything, hash_including(disable_notification: true)).at_least(:once)
+      end
+    end
+
+    describe 'trigger results in update response' do
+      let(:ticket)        { create(:ticket, group: ticket_group, customer_id: customer.id) }
+      let(:high_priority) { Ticket::Priority.find_by(name: '3 high') }
+      let(:trigger) do
+        create(:trigger,
+               :conditionable,
+               condition_ticket_action:  :update,
+               execution_condition_mode: 'always',
+               perform:                  { 'ticket.priority_id' => { 'value' => high_priority.id.to_s } })
+      end
+
+      before do
+        ticket
+        trigger
+        # Drop buffered events from factory creation, so the request's update
+        # event is not merged into a leftover create event.
+        TransactionDispatcher.reset
+        authenticated_as(agent)
+      end
+
+      # Sync triggers are dispatched inside the endpoint's Transaction.execute,
+      # before the response is rendered - their changes must be part of it.
+      it 'returns attributes changed by triggers' do
+        put "/api/v1/tickets/#{ticket.id}", params: { title: 'trigger me' }, as: :json
+
+        expect(json_response['priority_id']).to eq(high_priority.id)
+      end
+
+      it 'returns attributes changed by triggers on title update' do
+        put "/api/v1/tickets/#{ticket.id}/update_title", params: { title: 'trigger me' }, as: :json
+
+        expect(json_response['priority_id']).to eq(high_priority.id)
+      end
+
+      it 'returns attributes changed by triggers on customer update' do
+        other_customer = create(:customer)
+
+        put "/api/v1/tickets/#{ticket.id}/update_customer", params: { customer_id: other_customer.id }, as: :json
+
+        expect(json_response['priority_id']).to eq(high_priority.id)
+      end
+    end
+
     it 'does ticket split with html - check attachments (05.01)' do
       ticket = create(
         :ticket,
@@ -2388,8 +2573,8 @@ RSpec.describe 'Ticket', type: :request do
   end
 
   describe 'POST /api/v1/tickets' do
-    let(:group)  { create(:group) }
-    let(:agent)  { create(:agent, groups: [group]) }
+    let(:group) { create(:group) }
+    let(:agent) { create(:agent, groups: [group]) }
 
     let(:base_params) do
       {
@@ -2973,6 +3158,39 @@ RSpec.describe 'Ticket', type: :request do
           .to change { ticket.reload.title }
           .and not_change { ticket.reload.state }
           .and not_change { ticket.reload.priority }
+      end
+    end
+  end
+
+  describe 'group with no email address configured' do
+    let(:group)  { create(:group, email_address: nil) }
+    let(:agent)  { create(:agent, groups: [group]) }
+    let(:ticket) { create(:ticket, group: group) }
+
+    context 'POST /api/v1/ticket_articles', authenticated_as: -> { agent } do
+      it 'returns an unprocessable content error with a descriptive message' do
+        post '/api/v1/ticket_articles',
+             params: { ticket_id: ticket.id, body: 'some body', type: 'email', to: 'customer@example.com' },
+             as:     :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(json_response['error']).to eq('This group has no email address configured for outgoing communication.')
+      end
+    end
+
+    context 'POST /api/v1/tickets', authenticated_as: -> { agent } do
+      it 'returns an unprocessable content error with a descriptive message' do
+        post '/api/v1/tickets',
+             params: {
+               title:    'a ticket',
+               group:    group.name,
+               article:  { body: 'some body', type: 'email', to: 'customer@example.com' },
+               customer: agent.email,
+             },
+             as:     :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(json_response['error']).to eq('This group has no email address configured for outgoing communication.')
       end
     end
   end

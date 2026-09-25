@@ -53,19 +53,46 @@ module SecureMailing::PGP::Tool::Data
     private
 
     def verify_detached_signature(options, data, signature)
-      data_file = Tempfile.new('data')
       signature_file = Tempfile.new('signature')
       begin
-        data_file.write(data)
-        data_file.close
-
         signature_file.write(signature)
         signature_file.close
 
-        gpg('verify', options:, arguments: [signature_file.path, data_file.path])
+        if signature.to_s.include?('-----BEGIN PGP SIGNATURE-----')
+          # Standard RFC 3156 detached signature: GPG verifies against the supplied data.
+          verify_with_data_file(options, data, signature_file.path)
+        elsif signature.to_s.include?('-----BEGIN PGP MESSAGE-----')
+          # Non-standard opaque (inline) signature: GPG verifies the content embedded
+          # inside the blob, not the supplied data. We must also check that the embedded
+          # content matches the displayed body to prevent signature substitution attacks
+          # where an attacker reuses an old opaque signed message for arbitrary content.
+          verify_opaque_signature(options, data, signature_file.path)
+        else
+          raise __('Invalid signature format: expected a PGP signature')
+        end
+      ensure
+        signature_file.unlink
+      end
+    end
+
+    def verify_opaque_signature(options, data, signature_file_path)
+      result = gpg('verify', options:, arguments: [signature_file_path])
+
+      extraction = gpg('decrypt', options: options + ['--skip-verify'], arguments: [signature_file_path])
+
+      return result if extraction.stdout.strip == data.strip
+
+      raise __('PGP signature does not cover the displayed message body')
+    end
+
+    def verify_with_data_file(options, data, signature_file_path)
+      data_file = Tempfile.new('data')
+      begin
+        data_file.write(data)
+        data_file.close
+        gpg('verify', options:, arguments: [signature_file_path, data_file.path])
       ensure
         data_file.unlink
-        signature_file.unlink
       end
     end
   end

@@ -2,6 +2,8 @@
 
 module Gql::Mutations
   class KnowledgeBase::Answer::Suggestion::Content::Transform < BaseMutation
+    include Gql::Mutations::Form::UploadCache::Concerns::HandlesAuthorization
+
     description 'Transform the content of a knowledge base answer suggestion to be usable in the frontend'
 
     argument :translation_id, GraphQL::Types::ID, 'Answer translation ID to get the contents for'
@@ -13,7 +15,7 @@ module Gql::Mutations
     requires_permission 'ticket.agent'
 
     def resolve(translation_id:, form_id:)
-      translation = Gql::ZammadSchema.verified_object_from_id(translation_id, type: ::KnowledgeBase::Answer::Translation)
+      translation = Gql::ZammadSchema.authorized_object_from_id(translation_id, type: ::KnowledgeBase::Answer::Translation, user: context.current_user)
 
       {
         body:        convert_body(translation, form_id),

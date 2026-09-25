@@ -9,8 +9,6 @@ class KnowledgeBase::Answer::Translation
 
     included do
       scope :search_sql_extension, lambda { |params|
-        return if params[:current_user]&.permissions?('knowledge_base.editor')
-
         where(answer_id: search_answer_ids_for_user(params[:current_user]))
       }
 
@@ -24,7 +22,10 @@ class KnowledgeBase::Answer::Translation
 
     class_methods do
       def search_preferences(current_user)
-        return false if !KnowledgeBase.exists? || !current_user.permissions?('knowledge_base.*')
+        # `active` rather than any knowledge base: a deactivated one contributes no searchable
+        #   content, so with only that one around the global search has no reason to ask at all.
+        #   See https://github.com/zammad/zammad/issues/6338
+        return false if !KnowledgeBase.active.exists? || !current_user.permissions?('knowledge_base.*')
 
         {
           prio:                1209,
@@ -36,8 +37,6 @@ class KnowledgeBase::Answer::Translation
         kb_locales = KnowledgeBase.active.map { |elem| KnowledgeBase::Locale.preferred(params[:current_user], elem) }
 
         output = { bool: { filter: { terms: { kb_locale_id: kb_locales.map(&:id) } } } }
-
-        return output if params[:current_user]&.permissions?('knowledge_base.editor')
 
         output[:bool][:must] = [ { terms: {
           answer_id: search_answer_ids_for_user(params[:current_user])

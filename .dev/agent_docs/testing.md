@@ -5,6 +5,8 @@
 - Test at the **lowest level** possible — unit over request over E2E
 - Focus on the object under test, mock dependencies where it makes sense
 - Only important user stories get E2E/system tests (Capybara + Selenium)
+- Service specs cover behavior, GraphQL specs only the GraphQL layer —
+  see `.dev/agent_docs/testing_services_and_graphql.md`
 
 ## Backend (RSpec)
 
@@ -28,6 +30,15 @@ but omit it when frontend files have changed.
   outside of `spec/jobs/`
 - `db_strategy: :reset` — reset database after examples that modify
   the schema
+
+### System tests (Capybara + Selenium)
+
+Set `SELENIUM_BROWSER_HEADLESS=1` when running system specs — otherwise
+Selenium opens a real, visible browser window.
+
+```bash
+SELENIUM_BROWSER_HEADLESS=1 RAILS_ENV=test VITE_TEST_MODE=1 bundle exec rspec spec/system/path/to/file_spec.rb
+```
 
 ### Capybara form helpers (new frontend stack)
 

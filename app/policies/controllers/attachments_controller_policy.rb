@@ -11,6 +11,14 @@ class Controllers::AttachmentsControllerPolicy < Controllers::ApplicationControl
     store_object_policy(store_object_owner)&.destroy?
   end
 
+  def create?
+    upload_cache_access?
+  end
+
+  def destroy_form?
+    upload_cache_access?(action: :destroy?)
+  end
+
   def custom_exception
     ActiveRecord::RecordNotFound.new
   end
