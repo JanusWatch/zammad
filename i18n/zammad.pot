@@ -468,11 +468,11 @@ msgstr ""
 msgid "%{model} can have full or granular access to group"
 msgstr ""
 
-#: app/models/object_manager/attribute.rb:639
+#: app/models/object_manager/attribute.rb:631
 msgid "%{name} already exists"
 msgstr ""
 
-#: app/models/object_manager/attribute.rb:623
+#: app/models/object_manager/attribute.rb:615
 msgid "%{name} is a reserved word"
 msgstr ""
 
@@ -598,7 +598,7 @@ msgstr ""
 msgid "A color scheme that uses light-colored elements on a dark background."
 msgstr ""
 
-#: db/seeds/object_manager_attributes.rb:2285
+#: db/seeds/object_manager_attributes.rb:2423
 msgid "A group's email address determines which address should be used for outgoing mails, e.g. when an agent is composing an email or a trigger is sending an auto-reply"
 msgstr ""
 
@@ -1727,7 +1727,7 @@ msgstr ""
 msgid "Allow past dates toggle value is required."
 msgstr ""
 
-#: db/seeds/object_manager_attributes.rb:2216
+#: db/seeds/object_manager_attributes.rb:2354
 msgid "Allow reopening of tickets within a certain time."
 msgstr ""
 
@@ -2217,12 +2217,12 @@ msgstr ""
 msgid "Article(s) to analyze"
 msgstr ""
 
-#: db/seeds/object_manager_attributes.rb:2239
+#: db/seeds/object_manager_attributes.rb:2377
 msgid "Assign Follow-Ups"
 msgstr ""
 
 #: app/assets/javascripts/app/models/group.coffee:11
-#: db/seeds/object_manager_attributes.rb:2248
+#: db/seeds/object_manager_attributes.rb:2386
 msgid "Assign follow-up to latest agent again."
 msgstr ""
 
@@ -2256,7 +2256,7 @@ msgstr ""
 msgid "Assignees"
 msgstr ""
 
-#: db/seeds/object_manager_attributes.rb:2137
+#: db/seeds/object_manager_attributes.rb:2275
 msgid "Assignment Timeout"
 msgstr ""
 
@@ -2266,7 +2266,7 @@ msgid "Assignment timeout"
 msgstr ""
 
 #: app/assets/javascripts/app/models/group.coffee:8
-#: db/seeds/object_manager_attributes.rb:2142
+#: db/seeds/object_manager_attributes.rb:2280
 msgid "Assignment timeout in minutes if assigned agent is not working on it. Ticket will be shown as unassigend."
 msgstr ""
 
@@ -7999,12 +7999,12 @@ msgid "Follow up to all"
 msgstr ""
 
 #: app/assets/javascripts/app/models/group.coffee:9
-#: db/seeds/object_manager_attributes.rb:2181
+#: db/seeds/object_manager_attributes.rb:2319
 msgid "Follow-up for closed ticket possible or not."
 msgstr ""
 
 #: app/assets/javascripts/app/models/group.coffee:9
-#: db/seeds/object_manager_attributes.rb:2171
+#: db/seeds/object_manager_attributes.rb:2309
 msgid "Follow-up possible"
 msgstr ""
 
@@ -8210,6 +8210,10 @@ msgstr ""
 
 #: lib/form_spam_protection/captcha/friendly_captcha.rb:13
 msgid "Friendly Captcha"
+msgstr ""
+
+#: db/seeds/object_manager_attributes.rb:2067
+msgid "Friendly Name"
 msgstr ""
 
 #: app/assets/javascripts/app/controllers/_ui_element/postmaster_match.coffee:10
@@ -9618,7 +9622,7 @@ msgstr ""
 msgid "Internal Knowledge Base feed:"
 msgstr ""
 
-#: app/models/object_manager/attribute.rb:713
+#: app/models/object_manager/attribute.rb:705
 msgid "Internal attributes cannot be deleted"
 msgstr ""
 
@@ -10710,6 +10714,10 @@ msgstr ""
 
 #: app/assets/javascripts/app/models/macro.coffee
 msgid "Macros make it easy to automate common, multi-step tasks within Zammad.\n\nYou can use macros in Zammad to automate recurring sequences, saving time (and nerves). This allows a combined sequence of actions on the ticket to be executed with just one click."
+msgstr ""
+
+#: db/seeds/object_manager_attributes.rb:1963
+msgid "Mailbox"
 msgstr ""
 
 #: app/assets/javascripts/app/controllers/_channel/microsoft_graph.coffee:177
@@ -12832,12 +12840,12 @@ msgid "On %s, %s wrote:"
 msgstr ""
 
 #: app/assets/javascripts/app/controllers/_ai/ticket_summary.coffee:53
-#: db/seeds/object_manager_attributes.rb:2470
+#: db/seeds/object_manager_attributes.rb:2608
 msgid "On ticket detail opening"
 msgstr ""
 
 #: app/assets/javascripts/app/controllers/_ai/ticket_summary.coffee:57
-#: db/seeds/object_manager_attributes.rb:2474
+#: db/seeds/object_manager_attributes.rb:2612
 msgid "On ticket summary sidebar activation"
 msgstr ""
 
@@ -13482,7 +13490,7 @@ msgstr ""
 msgid "Parent category"
 msgstr ""
 
-#: db/seeds/object_manager_attributes.rb:2103
+#: db/seeds/object_manager_attributes.rb:2241
 msgid "Parent group"
 msgstr ""
 
@@ -13663,6 +13671,7 @@ msgstr ""
 #: app/assets/javascripts/app/views/profile/token_access.jst.eco:17
 #: app/frontend/apps/desktop/pages/knowledge-base/components/KnowledgeBaseCategoryFlyout/KnowledgeBaseCategoryFlyout.vue:91
 #: app/frontend/apps/desktop/pages/knowledge-base/components/KnowledgeBaseEditFlyout/KnowledgeBaseEditFlyout.vue:56
+#: app/frontend/apps/desktop/pages/personal-setting/components/PersonalSettingNewAccessTokenFlyout.vue:42
 #: app/frontend/apps/desktop/pages/personal-setting/views/PersonalSettingTokenAccess.vue:89
 msgid "Permissions"
 msgstr ""
@@ -14445,6 +14454,10 @@ msgstr ""
 msgid "Recipient"
 msgstr ""
 
+#: db/seeds/object_manager_attributes.rb:2034
+msgid "Recommended Recipients"
+msgstr ""
+
 #: app/assets/javascripts/app/views/generic/object_import/index.jst.eco:12
 msgid "Records that exist in the import data (but not in Zammad) will always be created."
 msgstr ""
@@ -14789,7 +14802,7 @@ msgid "Reopening rate"
 msgstr ""
 
 #: app/assets/javascripts/app/models/group.coffee:10
-#: db/seeds/object_manager_attributes.rb:2209
+#: db/seeds/object_manager_attributes.rb:2347
 msgid "Reopening time in days"
 msgstr ""
 
@@ -16136,7 +16149,7 @@ msgstr ""
 msgid "Sender of last article"
 msgstr ""
 
-#: db/seeds/object_manager_attributes.rb:2276
+#: db/seeds/object_manager_attributes.rb:2414
 msgid "Sending Email Address"
 msgstr ""
 
@@ -16387,7 +16400,7 @@ msgstr ""
 
 #: app/assets/javascripts/app/controllers/agent_ticket_create/sidebar_shared_draft.coffee:12
 #: app/assets/javascripts/app/models/group.coffee:17
-#: db/seeds/object_manager_attributes.rb:2347
+#: db/seeds/object_manager_attributes.rb:2485
 msgid "Shared Drafts"
 msgstr ""
 
@@ -16678,7 +16691,7 @@ msgstr ""
 #: app/assets/javascripts/app/controllers/ticket_shared_draft_modal.coffee:174
 #: app/assets/javascripts/app/models/group.coffee:13
 #: app/controllers/integration/smime_controller.rb:123
-#: db/seeds/object_manager_attributes.rb:2312
+#: db/seeds/object_manager_attributes.rb:1999
 msgid "Signature"
 msgstr ""
 
@@ -17285,7 +17298,7 @@ msgid "Summarize section to about half its current size"
 msgstr ""
 
 #: app/assets/javascripts/app/views/ai/ticket_summary.jst.eco:53
-#: db/seeds/object_manager_attributes.rb:2460
+#: db/seeds/object_manager_attributes.rb:2598
 msgid "Summary Generation"
 msgstr ""
 
@@ -18315,6 +18328,10 @@ msgstr ""
 
 #: app/services/service/auth/verify_admin_token.rb:16
 msgid "The login is not possible."
+msgstr ""
+
+#: db/seeds/object_manager_attributes.rb:1972
+msgid "The mailbox from which follow-up emails on any ticket of this organization are sent, and to which incoming emails are assigned as tickets of this organization."
 msgstr ""
 
 #: app/frontend/shared/components/Form/fields/FieldDate/useDateTime.ts:104
@@ -20373,7 +20390,7 @@ msgstr ""
 msgid "Toggle dark mode"
 msgstr ""
 
-#: app/frontend/apps/desktop/components/Form/fields/FieldPermissions/FieldPermissionsInput.vue:162
+#: app/frontend/apps/desktop/components/Form/fields/FieldPermissions/FieldPermissionsInput.vue:179
 msgid "Toggle group"
 msgstr ""
 
@@ -21230,7 +21247,7 @@ msgstr ""
 msgid "Use for semantic search"
 msgstr ""
 
-#: db/seeds/object_manager_attributes.rb:2466
+#: db/seeds/object_manager_attributes.rb:2604
 msgid "Use global default"
 msgstr ""
 
@@ -22753,7 +22770,7 @@ msgstr ""
 msgid "at"
 msgstr ""
 
-#: app/models/object_manager/attribute.rb:619
+#: app/models/object_manager/attribute.rb:611
 msgid "at least one letter is required"
 msgstr ""
 
@@ -22762,7 +22779,7 @@ msgstr ""
 msgid "attachment,attached,enclosed,enclosure"
 msgstr ""
 
-#: app/models/object_manager/attribute.rb:652
+#: app/models/object_manager/attribute.rb:644
 msgid "attribute is not editable"
 msgstr ""
 
@@ -22796,7 +22813,7 @@ msgstr ""
 msgid "camera,image,photo,picture"
 msgstr ""
 
-#: app/models/object_manager/attribute.rb:702
+#: app/models/object_manager/attribute.rb:694
 msgid "can't be altered after creation (you can delete the attribute and create another with the desired value)"
 msgstr ""
 
@@ -22806,11 +22823,11 @@ msgstr ""
 msgid "can't be empty"
 msgstr ""
 
-#: app/models/object_manager/attribute.rb:709
+#: app/models/object_manager/attribute.rb:701
 msgid "can't be modified"
 msgstr ""
 
-#: app/models/object_manager/attribute.rb:610
+#: app/models/object_manager/attribute.rb:602
 msgid "can't be used because *_id and *_ids are not allowed"
 msgstr ""
 
@@ -23022,12 +23039,12 @@ msgid "disconnect"
 msgstr ""
 
 #: app/assets/javascripts/app/models/group.coffee:9
-#: db/seeds/object_manager_attributes.rb:2178
+#: db/seeds/object_manager_attributes.rb:2316
 msgid "do not reopen ticket after certain time but create new ticket"
 msgstr ""
 
 #: app/assets/javascripts/app/models/group.coffee:9
-#: db/seeds/object_manager_attributes.rb:2177
+#: db/seeds/object_manager_attributes.rb:2315
 msgid "do not reopen ticket but create new ticket"
 msgstr ""
 
@@ -23816,7 +23833,7 @@ msgstr ""
 msgid "now"
 msgstr ""
 
-#: app/models/object_manager/attribute.rb:616
+#: app/models/object_manager/attribute.rb:608
 msgid "only lowercase letters, numbers, and '_' are allowed"
 msgstr ""
 
@@ -24078,7 +24095,7 @@ msgstr ""
 msgid "sms"
 msgstr ""
 
-#: app/models/object_manager/attribute.rb:613
+#: app/models/object_manager/attribute.rb:605
 msgid "spaces are not allowed"
 msgstr ""
 
