@@ -3519,6 +3519,7 @@ export type Organization = ObjectAttributeValuesInterface & {
   createdBy?: Maybe<User>;
   domain?: Maybe<Scalars['String']['output']>;
   domainAssignment?: Maybe<Scalars['Boolean']['output']>;
+  emailAddressId?: Maybe<Scalars['Int']['output']>;
   id: Scalars['ID']['output'];
   /** Internal database ID */
   internalId: Scalars['Int']['output'];
@@ -3595,6 +3596,8 @@ export type OrganizationInput = {
   domain?: InputMaybe<Scalars['String']['input']>;
   /** The organization domain assignment flag */
   domainAssignment?: InputMaybe<Scalars['Boolean']['input']>;
+  /** The organization mailbox email address id */
+  emailAddressId?: InputMaybe<Scalars['Int']['input']>;
   /** The organization name */
   name?: InputMaybe<Scalars['String']['input']>;
   /** The organization note */
