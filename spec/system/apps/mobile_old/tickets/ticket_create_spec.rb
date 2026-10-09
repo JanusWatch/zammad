@@ -27,7 +27,7 @@ RSpec.describe 'Mobile > Ticket > Create', app: :mobile, authenticated_as: :user
 
   def check_is_focused(element)
     wait.until do
-      page.driver.browser.switch_to.active_element == element.native
+      element.evaluate_script('this === document.activeElement')
     end
   end
 
@@ -283,6 +283,7 @@ RSpec.describe 'Mobile > Ticket > Create', app: :mobile, authenticated_as: :user
         find_input('Last name').type('Doe')
 
         click_on('Save')
+        wait_for_mutation('userAdd')
 
         expect(find_autocomplete('Customer')).to have_selected_option('John Doe')
       end

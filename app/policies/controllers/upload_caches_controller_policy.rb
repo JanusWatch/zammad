@@ -10,17 +10,12 @@ class Controllers::UploadCachesControllerPolicy < Controllers::ApplicationContro
   end
 
   def remove_item?
-    permission?(record.params[:store_id])
+    permission?
   end
 
   private
 
-  def permission?(attachment_id = nil)
-    attachments = UploadCache.new(record.params[:id]).attachments
-    return true if attachments.blank?
-
-    attachment = attachment_id ? attachments.find(attachment_id) : attachments.first
-
-    attachment.created_by_id == user.id
+  def permission?
+    Pundit.policy(user, UploadCache.new(record.params[:id]))&.any?
   end
 end

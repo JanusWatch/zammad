@@ -1,9 +1,9 @@
 <!-- Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/ -->
 
 <script setup lang="ts">
-import { useInfiniteScroll, whenever } from '@vueuse/core'
+import { useInfiniteScroll, useResizeObserver, whenever } from '@vueuse/core'
 import { isEqual, merge } from 'lodash-es'
-import { computed, nextTick, ref, shallowRef, toRef, watch } from 'vue'
+import { computed, nextTick, ref, shallowRef, toRef, useTemplateRef, watch } from 'vue'
 import { onBeforeRouteUpdate } from 'vue-router'
 
 import ObjectAttribute from '#shared/components/ObjectAttributes/ObjectAttribute.vue'
@@ -17,7 +17,7 @@ import type { ObjectLike } from '#shared/types/utils.ts'
 
 import CommonActionMenu from '#desktop/components/CommonActionMenu/CommonActionMenu.vue'
 import CellCheckbox from '#desktop/components/CommonTable/CellContent/CellCheckbox.vue'
-import CommonTableRowsSkeleton from '#desktop/components/CommonTable/Skeleton/CommonTableRowsSkeleton.vue'
+import CommonTableSkeleton from '#desktop/components/CommonTable/Skeleton/CommonTableSkeleton.vue'
 import TableCaption from '#desktop/components/CommonTable/TableCaption.vue'
 import { useKeepAliveHooks } from '#desktop/composables/useKeepAliveHooks.ts'
 
@@ -115,6 +115,21 @@ const tableAttributes = computed(() => {
 const tableColumnLength = computed(
   () => tableAttributes.value.length + (props.actions ? 1 : 0) + (props.hasBulkAction ? 1 : 0),
 )
+
+const columnWidthsForSkeleton = ref<number[]>([])
+
+const tableRef = useTemplateRef('table')
+
+const readColumnWidths = () => {
+  columnWidthsForSkeleton.value = tableAttributes.value.map(
+    (attr) =>
+      tableRef.value?.querySelector<HTMLElement>(`[id="${attr.name}-header"]`)?.clientWidth ?? 0,
+  )
+}
+
+watch(tableAttributes, readColumnWidths, { immediate: true, flush: 'post' })
+
+useResizeObserver(tableRef, readColumnWidths)
 
 const getTooltipText = (item: TableAdvancedItem, tableAttribute: TableAttribute) =>
   tableAttribute.columnPreferences?.tooltip?.(item)
@@ -412,11 +427,11 @@ const endOfListMessage = computed(() => {
 
   return props.totalItemsCount > props.maxItems
     ? i18n.t(
-        'You reached the table limit of %s tickets (%s remaining).',
+        'You reached the table limit of %s items (%s remaining).',
         props.maxItems,
         props.totalItemsCount - loadedItems.value.length,
       )
-    : i18n.t("You don't have more tickets to load.")
+    : i18n.t("You don't have more items to load.")
 })
 
 const getLinkColorClasses = (item: TableAdvancedItem) => {
@@ -474,6 +489,7 @@ watch(
 
 <template>
   <table
+    ref="table"
     v-bind="$attrs"
     class="relative table-fixed pb-3"
     :class="{
@@ -622,7 +638,7 @@ watch(
                 <slot :name="`item-suffix-${tableAttribute.name}`" :item="item" />
               </div>
             </td>
-            <td v-if="actions" class="h-10 p-2.5 text-center">
+            <td v-if="actions" headers="actions-header" class="h-10 px-2.5 py-1 text-center">
               <slot name="actions" v-bind="{ actions, item }">
                 <CommonActionMenu
                   class="flex! items-center justify-center"
@@ -642,7 +658,15 @@ watch(
           :class="{ 'pt-10': loadedItems.length % 2 !== 0 }"
           class="absolute w-full pb-4"
         >
-          <CommonTableRowsSkeleton :rows="3" />
+          <CommonTableSkeleton
+            :has-actions="!!actions?.length"
+            :has-bulk-action="hasBulkAction"
+            class="w-full"
+            load-more
+            :rows="3"
+            :columns="tableAttributes.length"
+            :column-widths="columnWidthsForSkeleton"
+          />
         </div>
       </Transition>
     </tbody>

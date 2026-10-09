@@ -582,7 +582,7 @@ ObjectManager::Attribute.add(
 
 # NB: Untranslated list of languages for now, supported by CLD library.
 #   https://github.com/mzsanford/cld/blob/master/languages/internal/languages.cc
-# rubocop:disable Zammad/DetectTranslatableString
+# rubocop:disable-next Zammad/DetectTranslatableString
 detected_language_options = {
   'ab'     => 'Abkhazian',
   'aa'     => 'Afar',
@@ -744,7 +744,6 @@ detected_language_options = {
   'za'     => 'Zhuang',
   'zu'     => 'Zulu',
 }.freeze
-# rubocop:enable Zammad/DetectTranslatableString
 
 ObjectManager::Attribute.add(
   force:       true,
@@ -2613,10 +2612,6 @@ ObjectManager::Attribute.add(
       {
         name:  __('On ticket summary sidebar activation'),
         value: 'on_ticket_summary_sidebar_activation'
-      },
-      {
-        name:  __('Hide ticket summary sidebar'),
-        value: 'disabled'
       }
     ],
     nulloption: false,

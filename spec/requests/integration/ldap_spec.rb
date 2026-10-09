@@ -47,6 +47,62 @@ RSpec.describe 'Ldap', type: :request do
     end
   end
 
+  describe 'job_try' do
+    context 'with masked password' do
+      let!(:ldap_source) do
+        create(:ldap_source, :with_config).tap do |ls|
+          ls.preferences[:bind_pw] = 'stored_password'
+          ls.save!
+        end
+      end
+      let(:params) { { ldap_source_id: ldap_source.id, bind_pw: SensitiveParamsHelper::SENSITIVE_MASK } }
+
+      it 'stores the unmasked password in the job payload' do
+        authenticated_as(admin)
+
+        post '/api/v1/integration/ldap/job_try', params: params, as: :json
+
+        expect(ImportJob.last.payload.dig(:ldap_config, :bind_pw)).to eq('stored_password')
+      end
+
+      it 'masks the password in the job_try GET response' do
+        authenticated_as(admin)
+
+        post '/api/v1/integration/ldap/job_try', params: params, as: :json
+        get '/api/v1/integration/ldap/job_try', params: { finished: 'true' }, as: :json
+
+        expect(json_response.dig('payload', 'ldap_config', 'bind_pw')).to eq(SensitiveParamsHelper::SENSITIVE_MASK)
+      end
+    end
+  end
+
+  describe 'job_start' do
+    before { authenticated_as(admin) }
+
+    it 'queues a sync' do
+      expect { post '/api/v1/integration/ldap/job_start', as: :json }
+        .to change { ImportJob.exists?(name: 'Import::Ldap', dry_run: false) }.to(true)
+    end
+
+    context 'with an interrupted dry run' do
+      before { create(:import_job, :interrupted, name: 'Import::Ldap', dry_run: true) }
+
+      it 'still queues a sync' do
+        expect { post '/api/v1/integration/ldap/job_start', as: :json }
+          .to change { ImportJob.exists?(name: 'Import::Ldap', dry_run: false) }.to(true)
+      end
+    end
+
+    context 'with an unfinished sync' do
+      before { create(:import_job, :interrupted, name: 'Import::Ldap') }
+
+      it "doesn't queue another sync" do
+        expect { post '/api/v1/integration/ldap/job_start', as: :json }
+          .not_to change(ImportJob, :count)
+      end
+    end
+  end
+
   describe 'bind' do
     let(:params) { { bind_pw: 'test' } }
 

@@ -1,6 +1,6 @@
 class TextModule extends App.ControllerSubContent
   @requiredPermission: 'admin.text_module'
-  header: __('Text modules')
+  header: __('Text Modules')
   constructor: ->
     super
 
@@ -17,10 +17,15 @@ class TextModule extends App.ControllerSubContent
         )
       searchBar: true
       searchQuery: @search_query
+      searchShortcuts: [
+        { query: 'active:true', label: __('Active only') }
+        { query: 'created_at:>now-1M', label: __('Created within last month') }
+        { query: 'updated_at:>now-7d', label: __('Updated within last 7 days') }
+      ]
       pageData:
         home:      'text_modules'
         object:    __('Text module')
-        objects:   __('Text modules')
+        objects:   __('Text Modules')
         searchPlaceholder: __('Search for text modules')
         pagerAjax: true
         pagerBaseUrl: '#manage/text_modules/'
@@ -44,4 +49,4 @@ class TextModule extends App.ControllerSubContent
 
     @genericController.paginate(@page || 1, params)
 
-App.Config.set('TextModule', { prio: 2300, name: __('Text modules'), parent: '#manage', target: '#manage/text_modules', controller: TextModule, permission: ['admin.text_module'] }, 'NavBarAdmin')
+App.Config.set('TextModule', { prio: 2300, name: __('Text Modules'), parent: '#manage', target: '#manage/text_modules', controller: TextModule, permission: ['admin.text_module'] }, 'NavBarAdmin')

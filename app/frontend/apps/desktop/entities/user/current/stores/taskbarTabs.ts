@@ -319,7 +319,7 @@ export const useUserCurrentTaskbarTabsStore = defineStore('userCurrentTaskbarTab
 
     // Add temporary in creation taskbar tab item when we have already an existing entity from the cache.
     if (entityType && entityDocument) {
-      const tabEntityInternalId = buildTaskbarTabEntityId(route)
+      const tabEntityInternalId = buildTaskbarTabEntityId?.(route)
 
       if (tabEntityInternalId) {
         const cachedEntity = getApolloClient().cache.readFragment<TaskbarItemEntity>({
@@ -345,7 +345,7 @@ export const useUserCurrentTaskbarTabsStore = defineStore('userCurrentTaskbarTab
           callback: taskbarTabEntity,
           key: tabEntityKey,
           notify: false,
-          params: buildTaskbarTabParams(route),
+          params: buildTaskbarTabParams?.(route) ?? {},
           prio: order,
         },
       })
@@ -434,9 +434,17 @@ export const useUserCurrentTaskbarTabsStore = defineStore('userCurrentTaskbarTab
 
     if (silenceError) silenceTaskbarDeleteError = true
 
+    const tabEntityKey = taskbarTabList.value.find(
+      (taskbarTab) => taskbarTab.taskbarTabId === taskbarTabId,
+    )?.tabEntityKey
+
     taskbarDeleteMutation
       .send({
         id: taskbarTabId,
+      })
+      .then(() => {
+        // Drop the stored context, it is no longer needed once the tab is gone.
+        if (tabEntityKey) delete taskbarTabContexts.value[tabEntityKey]
       })
       .catch(() => {
         taskbarTabIDsInDeletion.value = taskbarTabIDsInDeletion.value.filter(
@@ -449,10 +457,12 @@ export const useUserCurrentTaskbarTabsStore = defineStore('userCurrentTaskbarTab
   }
 
   watch(taskbarTabList, (newTaskbarTabList) => {
-    if (
-      !newTaskbarTabList ||
-      newTaskbarTabList.length <= application.config.ui_task_mananger_max_task_count
-    )
+    const maxTaskCount = application.config.ui_task_mananger_max_task_count
+
+    // Without a configured (positive) maximum there is nothing to enforce. Note that
+    // `newTaskbarTabList.length <= undefined` is always `false`, so skipping this check
+    // would otherwise make every list change fall through to the eviction logic below.
+    if (!newTaskbarTabList || !(maxTaskCount > 0) || newTaskbarTabList.length <= maxTaskCount)
       return
 
     const sortedTaskbarTabList = newTaskbarTabList

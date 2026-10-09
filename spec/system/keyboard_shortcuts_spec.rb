@@ -97,9 +97,8 @@ RSpec.describe 'Keyboard Shortcuts', type: :system do
     context 'for Logout' do
       before do
         visit '/'
-        within :active_content, '.dashboard' do
-          send_keys([:shift, 'l'])
-        end
+        find(:active_content, '.dashboard').click
+        send_keys([:shift, 'l'])
       end
 
       it 'goes to sign in page' do
@@ -147,7 +146,7 @@ RSpec.describe 'Keyboard Shortcuts', type: :system do
       context 'shows the next tab' do
         it 'show the next tab' do
           await_empty_ajax_queue
-          send_keys(%i[shift arrow_right])
+          send_keys(%i[shift right])
 
           within :active_content, 'form.ticket-create' do
             expect(page).to have_title 'Inbound Call'
@@ -158,7 +157,7 @@ RSpec.describe 'Keyboard Shortcuts', type: :system do
       context 'shows the previous tab' do
         it 'shows the previous tab' do
           await_empty_ajax_queue
-          send_keys(%i[shift arrow_left])
+          send_keys(%i[shift left])
 
           within :active_content, 'form.ticket-create' do
             expect(page).to have_title 'Outbound Call'
@@ -176,7 +175,7 @@ RSpec.describe 'Keyboard Shortcuts', type: :system do
 
       it 'add internal note and submit' do
         send_keys(['x'])
-        send_keys(['some text'])
+        send_keys('some text')
 
         within :active_content do
           expect(page).to have_css('.article-new .js-textarea', text: 'some text')
@@ -200,7 +199,7 @@ RSpec.describe 'Keyboard Shortcuts', type: :system do
       it 'add public note and submit' do
         send_keys(['i'])
         send_keys(['x'])
-        send_keys(['some text'])
+        send_keys('some text')
 
         within :active_content do
           expect(page).to have_css('.article-new .js-textarea', text: 'some text')

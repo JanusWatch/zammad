@@ -105,7 +105,9 @@ const setHeaderWidths = (reset?: boolean) => {
     shouldReset = true
 
   props.tableAttributes.forEach((tableAttribute) => {
-    const header = document.getElementById(`${tableAttribute.name}-header`)
+    const header = tableElement.value?.querySelector<HTMLElement>(
+      `[id="${tableAttribute.name}-header"]`,
+    )
     if (!header) return
 
     if (shouldReset) {
@@ -140,7 +142,9 @@ const calculateHeaderWidths = () => {
   const headerWidths: Record<string, number> = {}
 
   props.tableAttributes.forEach((tableAttribute) => {
-    const headerWidth = document.getElementById(`${tableAttribute.name}-header`)?.clientWidth
+    const headerWidth = tableElement.value?.querySelector<HTMLElement>(
+      `[id="${tableAttribute.name}-header"]`,
+    )?.clientWidth
 
     if (!headerWidth) return
 
@@ -293,7 +297,13 @@ useOnEmitter('primary-sidebar-transition', () => initializeHeaderWidths())
 <template>
   <thead ref="thead">
     <tr>
-      <th v-if="hasBulkAction" id="select-header" :aria-label="$t('Select')" class="size-10">
+      <th
+        v-if="hasBulkAction"
+        id="select-header"
+        scope="col"
+        :aria-label="$t('Select')"
+        class="size-10"
+      >
         <BulkCheckbox
           :items="items"
           :item-ids="itemIds"
@@ -306,7 +316,8 @@ useOnEmitter('primary-sidebar-transition', () => initializeHeaderWidths())
         v-for="(tableAttribute, index) in tableAttributes"
         :id="`${tableAttribute.name}-header`"
         :key="tableAttribute.name"
-        class="relative h-10 p-2.5 text-xs"
+        scope="col"
+        class="relative h-10 px-2.5 py-1 text-xs"
         :class="[tableAttribute.headerPreferences?.headerClass]"
         :aria-label="$t(tableAttribute.label, ...(tableAttribute.labelPlaceholder || []))"
         :aria-sort="
@@ -322,7 +333,7 @@ useOnEmitter('primary-sidebar-transition', () => initializeHeaderWidths())
           <slot :name="`column-header-${tableAttribute.name}`" :attribute="tableAttribute">
             <!-- eslint-disable vuejs-accessibility/no-static-element-interactions,vuejs-accessibility/mouse-events-have-key-events-->
             <div
-              v-tooltip.noAriaLabel="getToolbarLabel(tableAttribute)"
+              v-tooltip="getToolbarLabel(tableAttribute)"
               class="flex items-center gap-1"
               :class="[
                 cellAlignmentClasses[tableAttribute.columnPreferences?.alignContent || 'left'],
@@ -377,7 +388,7 @@ useOnEmitter('primary-sidebar-transition', () => initializeHeaderWidths())
           @reset="resetHeaderWidths"
         />
       </th>
-      <th v-if="actions" class="h-10 w-0 p-2.5 text-center">
+      <th v-if="actions" id="actions-header" scope="col" class="h-10 w-0 p-2.5 text-center">
         <CommonLabel class="font-normal text-stone-200! dark:text-neutral-500!" size="small"
           >{{ $t('Actions') }}
         </CommonLabel>

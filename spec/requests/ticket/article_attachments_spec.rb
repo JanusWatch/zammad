@@ -39,7 +39,7 @@ RSpec.describe 'Ticket Article Attachments', authenticated_as: -> { agent }, typ
 
           get "/api/v1/ticket_attachment/#{ticket1.id}/#{article2.id}/#{store_file.id}", params: {}
           expect(response).to have_http_status(:forbidden)
-          expect(response.body).to match(%r{403: Forbidden})
+          expect(response.body).to include('403: Forbidden')
         end
       end
 
@@ -60,7 +60,7 @@ RSpec.describe 'Ticket Article Attachments', authenticated_as: -> { agent }, typ
 
           get "/api/v1/ticket_attachment/#{ticket2.id}/#{article2.id}/#{store_file.id}", params: {}
           expect(response).to have_http_status(:forbidden)
-          expect(response.body).to match(%r{403: Forbidden})
+          expect(response.body).to include('403: Forbidden')
 
           # allow access via merged ticket id also
           get "/api/v1/ticket_attachment/#{ticket1.id}/#{article1.id}/#{store_file.id}", params: {}
@@ -69,7 +69,7 @@ RSpec.describe 'Ticket Article Attachments', authenticated_as: -> { agent }, typ
 
           get "/api/v1/ticket_attachment/#{ticket1.id}/#{article2.id}/#{store_file.id}", params: {}
           expect(response).to have_http_status(:forbidden)
-          expect(response.body).to match(%r{403: Forbidden})
+          expect(response.body).to include('403: Forbidden')
         end
       end
 
@@ -145,6 +145,52 @@ RSpec.describe 'Ticket Article Attachments', authenticated_as: -> { agent }, typ
             expect(json_response['filename']).to eq store_file_name
             expect(json_response['events'].first).to include(expected_event)
           end
+        end
+      end
+    end
+
+    context 'with an internal article attachment' do
+      subject(:clone_request) do
+        post "/api/v1/ticket_attachment_upload_clone_by_article/#{article.id}", params: { form_id: SecureRandom.uuid }, as: :json
+      end
+
+      let(:customer) { create(:customer) }
+      let(:ticket)   { create(:ticket, group: group, customer: customer) }
+      let(:article)  { create(:ticket_article, :internal_note, ticket: ticket) }
+      let(:secret_store_file) do
+        create(:store,
+               object:      'Ticket::Article',
+               o_id:        article.id,
+               data:        'secret file content',
+               filename:    'secret.txt',
+               preferences: { 'Content-Type' => 'text/plain' })
+      end
+
+      context 'when accessed as a customer' do
+        it 'returns forbidden for attachment download' do
+          authenticated_as(customer)
+          get "/api/v1/ticket_attachment/#{ticket.id}/#{article.id}/#{secret_store_file.id}"
+          expect(response).to have_http_status(:forbidden)
+        end
+
+        it 'returns forbidden for attachment clone' do
+          authenticated_as(customer)
+          clone_request
+          expect(response).to have_http_status(:forbidden)
+        end
+      end
+
+      context 'when accessed as an agent' do
+        it 'returns ok for attachment download' do
+          get "/api/v1/ticket_attachment/#{ticket.id}/#{article.id}/#{secret_store_file.id}"
+          expect(response).to have_http_status(:ok)
+        end
+
+        it 'allows attachment clone' do
+          secret_store_file
+          clone_request
+          expect(response).to have_http_status(:ok)
+          expect(json_response['attachments'].pluck('filename')).to include('secret.txt')
         end
       end
     end

@@ -7,6 +7,7 @@ import { useObjectAttributesStore } from '#shared/entities/object-attributes/sto
 import type { FilterAttribute } from '#shared/entities/object-attributes/types/store.ts'
 import {
   EnumSearchableModels,
+  type EnumObjectManagerObjects,
   type SelectorNodeInput,
   type SelectorObjectInput,
 } from '#shared/graphql/types.ts'
@@ -14,6 +15,7 @@ import { useSessionStore } from '#shared/stores/session.ts'
 
 import type { FilterSelectorEntry } from '#desktop/components/Form/fields/FieldFilterSelector/types.ts'
 import { useSearchPlugins } from '#desktop/components/Search/plugins/index.ts'
+import type { SearchPlugin } from '#desktop/components/Search/types.ts'
 import {
   encodeFilters,
   isMeaningfulFilterValue,
@@ -36,16 +38,22 @@ export const useSearchAdvancedFilters = (
 
   const { plugins: visiblePlugins } = useSearchPlugins()
 
+  // A filter-capable plugin needs object manager attributes to build a filter
+  // UI from. The type predicate narrows `object` to non-optional, so callers
+  // never need a non-null assertion.
+  const isFilterablePlugin = (
+    plugin: SearchPlugin,
+  ): plugin is SearchPlugin & { object: EnumObjectManagerObjects } => {
+    if (plugin.filtersDisabled) return false
+    if (!plugin.object) return false
+    if (plugin.filterPermissions) return hasPermission(plugin.filterPermissions)
+    return true
+  }
+
   // Filter-capable plugins among the ones the user can see. `useSearchPlugins`
   // already gates by `plugin.permissions`, so we don't reconsider it here —
   // only the filter-specific opt-outs apply.
-  const filterPlugins = computed(() =>
-    visiblePlugins.value.filter((plugin) => {
-      if (plugin.filtersDisabled) return false
-      if (plugin.filterPermissions) return hasPermission(plugin.filterPermissions)
-      return true
-    }),
-  )
+  const filterPlugins = computed(() => visiblePlugins.value.filter(isFilterablePlugin))
 
   filterPlugins.value.forEach((plugin) => {
     loadObjectAttributesForObject(plugin.object)
@@ -64,11 +72,13 @@ export const useSearchAdvancedFilters = (
 
   const selectorsByEntity = computed<Record<string, SelectorObjectInput>>(() => {
     const entries = Object.entries(filtersByEntity).map(([entity, filters]) => {
-      const cleaned = dropEmptyFilterValues(filters).map((entry) => ({
-        name: entry.name,
-        operator: entry.operator,
-        value: entry.value,
-      }))
+      const cleaned = dropEmptyFilterValues(filters).map((entry) => {
+        // Operator-specific extras (e.g. the `range` unit of relative
+        // operators) ride at the same level as `value`, the shape the backend
+        // selector consumes.
+        const { name, operator, value, ...extra } = entry
+        return Object.assign({ name, operator, value }, extra)
+      })
 
       return [
         entity,

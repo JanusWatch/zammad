@@ -5,8 +5,10 @@ import { waitFor, within } from '@testing-library/vue'
 import ticketObjectAttributes from '#tests/graphql/factories/fixtures/ticket-object-attributes.ts'
 import { getTestRouter } from '#tests/support/components/renderComponent.ts'
 import { visitView } from '#tests/support/components/visitView.ts'
+import { mockApplicationConfig } from '#tests/support/mock-applicationConfig.ts'
 import { mockPermissions } from '#tests/support/mock-permissions.ts'
 import { waitForNextTick } from '#tests/support/utils.ts'
+import { waitUntil } from '#tests/support/vitest-wrapper.ts'
 
 import { mockFormUpdaterQuery } from '#shared/components/Form/graphql/queries/formUpdater.mocks.ts'
 import useMetaTitle from '#shared/composables/useMetaTitle.ts'
@@ -52,6 +54,14 @@ const visitSearchViewWithTicketTitleFilterAndNoSearchTerm = async (value: string
 let ticket: Ticket
 
 describe('search view', () => {
+  beforeEach(() => {
+    // Without this, `application.config.ui_task_mananger_max_task_count` is
+    // `undefined` in tests, which breaks the taskbar's max-open-tabs guard
+    // (`length <= undefined` is always `false`) and causes it to evict the
+    // search view's own taskbar tab under load, see #taskbarTabs.ts.
+    mockApplicationConfig({ ui_task_mananger_max_task_count: 30 })
+  })
+
   describe('agent user', () => {
     beforeEach(() => {
       mockPermissions(['ticket.agent'])
@@ -76,6 +86,16 @@ describe('search view', () => {
 
       expect(view.getByRole('tablist', { name: 'Search entity' })).toBeInTheDocument()
       expect(view.getByRole('tablist', { name: 'Search entity' })).toBeInTheDocument()
+    })
+
+    // `routeEntity` resolves an `?entity=` only when a registered plugin backs it; anything else
+    //   falls back to tickets rather than selecting a tab with nothing behind it.
+    it('falls back to the ticket tab for a model that is no plugin at all', async () => {
+      const view = await visitView('/search/123?entity=Nonsense')
+
+      expect(
+        await view.findByRole('table', { name: 'Search result for: Ticket' }),
+      ).toBeInTheDocument()
     })
 
     it('write quick search input correctly to the search view input', async () => {
@@ -111,6 +131,37 @@ describe('search view', () => {
       })
 
       expect(view.getByRole('table')).toBeInTheDocument()
+    })
+
+    it('debounces the search term before it reaches the route and the queries', async () => {
+      const { searchContainer, view } = await visitSearchView()
+
+      await waitForDetailSearchQueryCalls()
+
+      const searchInput = within(searchContainer).getByRole('searchbox', { name: 'Search…' })
+      const router = getTestRouter()
+
+      await view.events.type(searchInput, 'ing')
+
+      // The input reflects every keystroke, the route (and with it the queries)
+      // must not move until the typing settles.
+      expect(searchInput).toHaveDisplayValue('testing')
+      expect(router.currentRoute.value.fullPath).toBe('/search/test?entity=Ticket')
+
+      await waitFor(() =>
+        expect(router.currentRoute.value.fullPath).toBe('/search/testing?entity=Ticket'),
+      )
+
+      const mocks = await waitForDetailSearchQueryCalls()
+
+      // One request for the initial term, one for the settled term - not one per keystroke.
+      expect(mocks).toHaveLength(2)
+      expect(mocks.at(-1)?.variables).toEqual({
+        filter: null,
+        limit: 30,
+        onlyIn: 'Ticket',
+        search: 'testing',
+      })
     })
 
     it('selects a ticket for bulk edit', async () => {
@@ -430,28 +481,35 @@ describe('search view', () => {
           await waitForDetailSearchQueryCalls()
           await waitForNextTick()
 
-          const taskbarSidebar = view.getByRole('list', {
+          // The filter badge appearing confirms hasActiveFilters is true, meaning
+          // the object-attributes query has resolved and URL filters are decoded.
+          // waitForNextTick(true) (nextTick + setTimeout) flushes all pending
+          // Vue renders including the Teleport defer cycle, ensuring dirty:true
+          // has reached UserTaskbarTabRemove before we click close.
+          const searchContainer = view.getByTestId('search-container')
+          await waitUntil(
+            () => within(searchContainer).queryByRole('button', { name: '1 filter(s)' }) !== null,
+          )
+          await waitForNextTick(true)
+
+          const taskbarSidebar = view.getByRole('tree', {
             name: 'User taskbar tabs',
           })
           const closeSearchTab = within(taskbarSidebar).getByRole('button', {
             name: 'Close this tab',
           })
+
           await view.events.click(closeSearchTab)
 
-          await waitFor(() => {
-            expect(view.queryByRole('button', { name: 'Discard changes' })).toBeInTheDocument()
-          })
+          await waitUntil(() => view.queryByRole('button', { name: 'Discard changes' }) !== null)
 
           const confirmationButton = view.getByRole('button', { name: 'Discard changes' })
           await view.events.click(confirmationButton)
 
-          await waitFor(() => {
-            expect(
-              within(taskbarSidebar).queryByRole('button', {
-                name: 'Close this tab',
-              }),
-            ).not.toBeInTheDocument()
-          })
+          // After deletion the taskbar <ul> is detached from the DOM (Teleport
+          // unmounts when hasTaskbarTabs becomes false), so we must query the
+          // live document rather than the stale taskbarSidebar reference.
+          await waitUntil(() => view.queryByRole('button', { name: 'Close this tab' }) === null)
         })
 
         it('prompts for confirmation, but cancels, before closing search tab when some client side filtering is configured', async () => {
@@ -466,6 +524,12 @@ describe('search view', () => {
           await waitForDetailSearchQueryCalls()
           await waitForNextTick()
 
+          const searchContainer = view.getByTestId('search-container')
+          await waitUntil(
+            () => within(searchContainer).queryByRole('button', { name: '1 filter(s)' }) !== null,
+          )
+          await waitForNextTick()
+
           const router = getTestRouter()
 
           expect(router.currentRoute.value.query.entity).toBe(EnumSearchableModels.Ticket)
@@ -473,7 +537,7 @@ describe('search view', () => {
           expect(router.currentRoute.value.query).toHaveProperty('filter.0.operator')
           expect(router.currentRoute.value.query).toHaveProperty('filter.0.value')
 
-          const taskbarSidebar = view.getByRole('list', {
+          const taskbarSidebar = view.getByRole('tree', {
             name: 'User taskbar tabs',
           })
 
@@ -482,9 +546,7 @@ describe('search view', () => {
           })
           await view.events.click(closeSearchTab)
 
-          await waitFor(() => {
-            expect(view.queryByRole('button', { name: 'Cancel & go back' })).toBeInTheDocument()
-          })
+          await waitUntil(() => view.queryByRole('button', { name: 'Cancel & go back' }) !== null)
 
           const confirmationButton = view.getByRole('button', { name: 'Cancel & go back' })
           await view.events.click(confirmationButton)
@@ -511,13 +573,70 @@ describe('search view', () => {
       await waitForDetailSearchQueryCalls()
       await waitForNextTick()
 
-      const taskbarSidebar = view.getByRole('list', {
+      const taskbarSidebar = view.getByRole('tree', {
         name: 'User taskbar tabs',
       })
       const taskbarTab = within(taskbarSidebar).getByRole('link')
 
       await waitFor(() => expect(taskbarTab).toHaveTextContent(searchTerm))
       await waitFor(() => expect(document.title).toEqual(`Zammad - ${searchTerm}`))
+    })
+  })
+
+  // The knowledge base answer tab. Its plugin is gated by
+  //   `show` rather than by `permissions`, so `kb_active` plus a knowledge base permission is what
+  //   puts the tab on screen at all.
+  describe('knowledge base answers', () => {
+    beforeEach(() => {
+      mockPermissions(['ticket.agent', 'knowledge_base.reader'])
+      mockApplicationConfig({
+        ui_task_mananger_max_task_count: 30,
+        kb_active: true,
+      })
+
+      // Empty on purpose: this file checks the tab, the query and the controls around it. Rendering
+      //   the rows is `KnowledgeBaseAnswerTable.spec.ts`'s job, and one detail-search mock answers
+      //   every entity — so rows would arrive at whichever table is not theirs.
+      mockDetailSearchQuery({
+        search: {
+          totalCount: 0,
+          items: [],
+        },
+      })
+    })
+
+    it('offers a tab for them', async () => {
+      const { view } = await visitSearchView()
+
+      expect(await view.findByRole('tab', { name: /Knowledge base answer/ })).toBeInTheDocument()
+    })
+
+    it('searches that entity when its tab is selected', async () => {
+      const { view } = await visitSearchView()
+
+      await view.events.click(await view.findByRole('tab', { name: /Knowledge base answer/ }))
+
+      await waitFor(async () => {
+        const calls = await waitForDetailSearchQueryCalls()
+
+        expect(calls.at(-1)?.variables.onlyIn).toBe(
+          EnumSearchableModels.KnowledgeBaseAnswerTranslation,
+        )
+      })
+    })
+
+    // `filtersDisabled` on the plugin: knowledge base answers are no object manager object, so
+    //   there is no attribute set the filter UI could build itself from.
+    it('hides the advanced filter controls on that tab', async () => {
+      const { view } = await visitSearchView()
+
+      expect(view.getByRole('button', { name: 'Advanced filters' })).toBeInTheDocument()
+
+      await view.events.click(await view.findByRole('tab', { name: /Knowledge base answer/ }))
+
+      await waitFor(() =>
+        expect(view.queryByRole('button', { name: 'Advanced filters' })).not.toBeInTheDocument(),
+      )
     })
   })
 

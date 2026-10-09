@@ -74,7 +74,6 @@ const mockQueryResult = (input: { query: string; limit: number }): AutocompleteS
 
 const wrapperParameters = {
   form: true,
-  formField: true,
   router: true,
   dialog: true,
   store: true,
@@ -819,14 +818,14 @@ describe('Form - Field - AutoComplete - Features', () => {
     expect(selectOptions[0]).toHaveTextContent('Item D')
   })
 
-  it('supports validation of filter input', async () => {
+  it('offers the unknown filter value only when it passes the validator', async () => {
     const wrapper = renderComponent(FormKit, {
       ...wrapperParameters,
       props: {
         ...testProps,
         allowUnknownValues: true,
         debounceInterval: 0,
-        filterInputValidation: 'starts_with:#',
+        filterValueValidator: (filter: string) => filter.startsWith('#'),
       },
     })
 
@@ -836,15 +835,12 @@ describe('Form - Field - AutoComplete - Features', () => {
 
     await wrapper.events.type(filterElement, 'foo')
 
-    expect(wrapper.queryByText(`This field doesn't start with "#".`)).toBeInTheDocument()
-
+    // Invalid value is not offered as an unknown option.
     expect(wrapper.queryByText('No results found')).toBeInTheDocument()
 
     await wrapper.events.clear(filterElement)
 
     await wrapper.events.type(filterElement, '#foo')
-
-    expect(wrapper.queryByText(`This field doesn't start with "#".`)).not.toBeInTheDocument()
 
     const selectOptions = await wrapper.findAllByRole('option')
 

@@ -18,6 +18,7 @@ export const DetailSearchDocument = gql`
   ) {
     totalCount
     items {
+      __typename
       ... on Ticket {
         id
         internalId
@@ -77,6 +78,23 @@ export const DetailSearchDocument = gql`
         name
         shared
         active
+      }
+      ... on KnowledgeBaseAnswerTranslation {
+        id
+        title
+        updatedAt
+        visibility
+        answer {
+          id
+          category {
+            id
+          }
+        }
+        kbLocale {
+          systemLocale {
+            locale
+          }
+        }
       }
     }
   }

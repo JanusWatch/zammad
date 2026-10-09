@@ -3,18 +3,18 @@
 <!-- eslint-disable zammad/zammad-detect-translatable-string -->
 
 <script setup lang="ts">
-import { getNode, type FormKitNode } from '@formkit/core'
 import { VueDatePicker, WeekStart } from '@vuepic/vue-datepicker'
-import { isValid, format, formatISO, parse, parseISO } from 'date-fns'
+import { isValid, format, parse, parseISO } from 'date-fns'
 import { isEqual } from 'lodash-es'
 import { computed, nextTick, toRef, watch, useTemplateRef } from 'vue'
 import { IMask, useIMask } from 'vue-imask'
 
 import useValue from '#shared/components/Form/composables/useValue.ts'
+import { formatDateTimeValue } from '#shared/components/Form/fields/FieldDate/normalizeDateValue.ts'
 import type { DateTimeContext } from '#shared/components/Form/fields/FieldDate/types.ts'
 import { useDateFnsLocale } from '#shared/components/Form/fields/FieldDate/useDateFnsLocale.ts'
 import { useDateTime } from '#shared/components/Form/fields/FieldDate/useDateTime.ts'
-import dateRange from '#shared/form/validation/rules/date-range.ts'
+import { usePickerModel } from '#shared/components/Form/fields/FieldDate/usePickerModel.ts'
 import { i18n } from '#shared/i18n.ts'
 import testFlags from '#shared/utils/testFlags.ts'
 
@@ -30,14 +30,26 @@ const props = defineProps<Props>()
 
 const contextReactive = toRef(props, 'context')
 
-const { localValue } = useValue(contextReactive)
+const { hasValue, localValue } = useValue(contextReactive)
 
 const { ariaLabels, displayFormat, is24, maxDate, minDate, timePicker, valueFormat } =
   useDateTime(contextReactive)
 
+// Shared model handling: drops a half-selected range when `partialRange` is
+// false so only a complete range reaches the form value.
+const { pickerModel } = usePickerModel(contextReactive, localValue)
+
 const config = computed(() => ({
   keepActionRow: true,
 }))
+
+const rangeConfig = computed(() => {
+  if (!props.context.range) return false
+  return {
+    partialRange: false,
+    ...(typeof props.context.range === 'object' ? props.context.range : {}),
+  }
+})
 
 const actionRow = computed(() => ({
   showSelect: false,
@@ -176,7 +188,7 @@ const parseValue = (value: string) => {
 }
 
 const formatValue = (value: Date) => {
-  if (valueFormat.value === 'iso') return formatISO(value)
+  if (valueFormat.value === 'iso') return formatDateTimeValue(value)
   return format(value, valueFormat.value)
 }
 
@@ -216,18 +228,10 @@ watch(
   },
 )
 
-const dateRangeValidation = (value: (string | undefined)[]) => {
-  if (value.includes(undefined)) return false
-  if (dateRange.rule({ value } as FormKitNode<string[]>)) return true
-
-  const node = getNode(contextReactive.value.id)
-  if (!node) return
-
-  // Manually set validation error message.
-  node.setErrors(i18n.t(dateRange.localeMessage()))
-
-  return false
-}
+// A typed range only commits once both bounds are present; a reversed range is
+// allowed through and reordered by the `healDateRange` field feature, so no
+// ordering error is raised.
+const dateRangeValidation = (value: (string | undefined)[]) => !value.includes(undefined)
 
 watch(masked, (newValue) => {
   // empty input
@@ -308,10 +312,11 @@ const closed = () => {
     <!-- eslint-disable vuejs-accessibility/aria-props   -->
     <VueDatePicker
       ref="picker"
-      v-model="localValue"
+      v-model="pickerModel"
       :model-type="valueFormat"
       :disabled="context.disabled"
-      :range="context.range"
+      :range="rangeConfig"
+      :partial-range="context.partialRange"
       :time-config="{
         enableTimePicker: timePicker,
         is24: is24,
@@ -348,11 +353,20 @@ const closed = () => {
           :id="context.id"
           ref="el"
           :name="context.node.name"
-          :class="context.classes.input"
+          :class="[
+            context.classes.input,
+            'grow-0',
+            {
+              'w-[calc(100%-3rem)]!': context.clearable && hasValue,
+              'w-[calc(100%-1.5rem)]!': !context.clearable || !hasValue,
+            },
+          ]"
           :disabled="context.disabled"
           :aria-describedby="context.describedBy"
           v-bind="context.attrs"
           type="text"
+          @keydown.enter.prevent="pickerInstance?.openMenu()"
+          @keydown.esc.prevent="pickerInstance?.closeMenu()"
         />
       </template>
       <template #input-icon>
@@ -365,13 +379,15 @@ const closed = () => {
       </template>
       <template #clear-icon>
         <CommonIcon
-          class="me-3"
+          class="me-3 focus-visible-app-default focus-visible:rounded-xs"
           name="x-lg"
           size="xs"
           tabindex="0"
           role="button"
           :aria-label="$t('Clear selection')"
           @click.stop="pickerInstance?.clearValue()"
+          @keydown.enter.prevent="pickerInstance?.clearValue()"
+          @keydown.space.prevent="pickerInstance?.clearValue()"
         />
       </template>
       <template #clock-icon>
@@ -431,6 +447,8 @@ const closed = () => {
   }
 
   .dp--btn,
+  .dp--btn-base,
+  .dp--overlay-col,
   .dp--calendar-item,
   .dp--action-button {
     &:hover {
@@ -483,6 +501,8 @@ const closed = () => {
   }
 
   .dp--btn,
+  .dp--btn-base,
+  .dp--overlay-col,
   .dp--calendar-item,
   .dp--action-button {
     &:hover {
@@ -582,7 +602,9 @@ const closed = () => {
   }
 
   .dp--btn,
+  .dp--btn-base,
   .dp--button,
+  .dp--overlay-col,
   .dp--calendar-item,
   .dp--action-button {
     transition: none;
@@ -599,6 +621,16 @@ const closed = () => {
       outline-width: 1px;
       outline-style: solid;
       outline-offset: 1px;
+    }
+  }
+
+  .dp--overlay-col {
+    &:hover {
+      outline-width: 0;
+    }
+
+    &:focus {
+      outline-offset: -1px;
     }
   }
 

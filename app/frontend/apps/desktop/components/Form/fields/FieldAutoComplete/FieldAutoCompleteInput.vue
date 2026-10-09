@@ -437,6 +437,29 @@ const handleToggleDropdown = (event: MouseEvent) => {
 const OptionIconComponent =
   props.context.optionIconComponent ?? (FieldAutoCompleteOptionIcon as ConcreteComponent)
 
+const OptionComponent = props.context.optionComponent
+  ? markRaw(props.context.optionComponent)
+  : undefined
+
+// Replaces the icon and label of the collapsed single selection, for fields whose
+//   value cannot be described by `option.icon` and a label alone — e.g. an icon
+//   picker, which has to render the pick from its own sprite.
+const SelectedOptionComponent = props.context.selectedOptionComponent
+  ? markRaw(props.context.selectedOptionComponent)
+  : undefined
+
+// The option behind the current single selection, preferring the richer search
+//   result over the locally remembered one. Synthesized from the bare value as a
+//   last resort, so that a stored value without a matching option still renders.
+const selectedOption = computed<SelectOption | AutoCompleteOption>(
+  () =>
+    getSelectedAutocompleteOption(currentValue.value) ||
+    getSelectedOption(currentValue.value) || {
+      value: getSelectedOptionValue(currentValue.value),
+      label: '',
+    },
+)
+
 const handleCloseDropdown = (
   event: KeyboardEvent,
   expanded: boolean,
@@ -473,15 +496,13 @@ useFormBlock(
 <template>
   <div
     ref="input"
-    class="flex h-auto min-h-10 hover:outline-1 hover:-outline-offset-1 hover:outline-blue-600 has-[output:focus,input:focus]:outline has-[output:focus,input:focus]:-outline-offset-1 has-[output:focus,input:focus]:outline-blue-800 dark:hover:outline-blue-900 dark:has-[output:focus,input:focus]:outline-blue-800"
+    class="flex h-auto min-h-10 bg-blue-200 hover:outline-1 hover:-outline-offset-1 hover:outline-blue-600 has-[output:focus,input:focus]:outline has-[output:focus,input:focus]:-outline-offset-1 has-[output:focus,input:focus]:outline-blue-800 dark:bg-gray-700 dark:hover:outline-blue-900 dark:has-[output:focus,input:focus]:outline-blue-800 formkit-alternative-background:bg-neutral-50 dark:formkit-alternative-background:bg-gray-500"
     :class="[
       context.classes.input,
       {
         'rounded-lg': !select?.isOpen,
         'rounded-t-lg': select?.isOpen && !isBelowHalfScreen,
         'rounded-b-lg': select?.isOpen && isBelowHalfScreen,
-        'bg-blue-200 dark:bg-gray-700': !context.alternativeBackground,
-        'bg-neutral-50 dark:bg-gray-500': context.alternativeBackground,
       },
     ]"
     data-test-id="field-autocomplete"
@@ -495,6 +516,8 @@ useFormBlock(
       :owner="context.id"
       :filter="filter"
       :option-icon-component="markRaw(OptionIconComponent)"
+      :option-component="OptionComponent"
+      :grid-layout="context.gridLayout"
       :empty-initial-label-text="contextReactive.emptyInitialLabelText"
       :actions="context.actions"
       :is-child-page="childOptions.length > 0"
@@ -552,11 +575,7 @@ useFormBlock(
             role="listitem"
           >
             <div
-              class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-black dark:text-white"
-              :class="{
-                'bg-white dark:bg-gray-200': !context.alternativeBackground,
-                'bg-neutral-100 dark:bg-gray-200': context.alternativeBackground,
-              }"
+              class="inline-flex items-center gap-1 rounded bg-white px-1.5 py-0.5 text-xs text-black dark:bg-gray-200 dark:text-white formkit-alternative-background:bg-neutral-100 dark:formkit-alternative-background:bg-gray-200"
             >
               <CommonIcon
                 v-if="getSelectedAutocompleteOptionIcon(selectedValue)"
@@ -629,25 +648,32 @@ useFormBlock(
             class="flex items-center gap-1.5 text-sm"
             role="listitem"
           >
-            <CommonIcon
-              v-if="getSelectedAutocompleteOptionIcon(currentValue)"
-              :name="getSelectedAutocompleteOptionIcon(currentValue)"
-              class="shrink-0 fill-gray-100 dark:fill-neutral-400"
-              size="tiny"
-              decorative
+            <component
+              :is="SelectedOptionComponent"
+              v-if="SelectedOptionComponent"
+              :option="selectedOption"
             />
-            <span
-              v-tooltip="
-                getSelectedOptionLabel(currentValue) ||
-                i18n.t('%s (unknown)', getSelectedOptionValue(currentValue).toString())
-              "
-              class="line-clamp-3 break-word"
-            >
-              {{
-                getSelectedOptionLabel(currentValue) ||
-                i18n.t('%s (unknown)', getSelectedOptionValue(currentValue).toString())
-              }}
-            </span>
+            <template v-else>
+              <CommonIcon
+                v-if="getSelectedAutocompleteOptionIcon(currentValue)"
+                :name="getSelectedAutocompleteOptionIcon(currentValue)"
+                class="shrink-0 fill-gray-100 dark:fill-neutral-400"
+                size="tiny"
+                decorative
+              />
+              <span
+                v-tooltip="
+                  getSelectedOptionLabel(currentValue) ||
+                  i18n.t('%s (unknown)', getSelectedOptionValue(currentValue).toString())
+                "
+                class="line-clamp-3 break-word"
+              >
+                {{
+                  getSelectedOptionLabel(currentValue) ||
+                  i18n.t('%s (unknown)', getSelectedOptionValue(currentValue).toString())
+                }}
+              </span>
+            </template>
           </div>
         </div>
         <CommonIcon

@@ -90,7 +90,7 @@ RSpec.describe Channel::EmailParser, type: :model do
       end
 
       it 'ensures tests were dynamically generated' do
-        expect(Rails.root.glob('test/data/mail/mail*.box').count).to eq(116)
+        expect(Rails.root.glob('test/data/mail/mail*.box').count).to eq(119)
       end
     end
 
@@ -130,6 +130,114 @@ RSpec.describe Channel::EmailParser, type: :model do
 
       it { expect(parsed['body']).to eq '<div>このアドレスへのメルマガを解除してください。</div>' }
       it { expect(parsed['subject']).to eq 'メルマガ解除' }
+    end
+
+    # regression test for issue 6340 - Mail body silently falls back to CharDet
+    #   when Encoding.find cannot resolve the declared charset label
+    describe 'handling a charset label that Ruby cannot resolve' do
+      let(:mail_file) { Rails.root.join('test/data/mail/mail119.box') }
+      let(:raw_mail)  { File.read(mail_file) }
+      let(:parsed)    { described_class.new.parse(raw_mail) }
+
+      it { expect(parsed['body']).to start_with '<p>Добрый день!</p>' }
+    end
+
+    describe 'handling RFC 2047 encoded-words in From addr-spec (security)' do
+      let(:group)   { create(:group) }
+      let(:channel) { create(:email_channel, group: group) }
+      let(:agent)   { create(:agent, email: 'agent@victim.example', groups: [group]) }
+
+      before do
+        Setting.set('postmaster_sender_is_agent_search_for_customer', false)
+        agent && channel
+        Trigger.destroy_all
+      end
+
+      context 'with multi-segment Q-encoded ladder' do
+        let(:raw_mail) do
+          <<~RAW
+            From: =?utf-8?Q?attacker?Q?agent?=@victim.example
+            To: support@example.test
+            Subject: test
+
+            body
+          RAW
+        end
+
+        it 'does not set article sender to Agent' do
+          described_class.new.process(channel, raw_mail)
+          expect(Ticket::Article.last.sender.name).not_to eq('Agent')
+        end
+      end
+
+      context 'with multi-segment B-encoded ladder' do
+        let(:raw_mail) do
+          <<~RAW
+            From: =?utf-8?B?YXR0YWNrZXI=?B?YWdlbnQ=?=@victim.example
+            To: support@example.test
+            Subject: test
+
+            body
+          RAW
+        end
+
+        it 'does not set article sender to Agent' do
+          described_class.new.process(channel, raw_mail)
+          expect(Ticket::Article.last.sender.name).not_to eq('Agent')
+        end
+      end
+
+      context 'with valid clear-text From address' do
+        let(:raw_mail) do
+          <<~RAW
+            From: agent@victim.example
+            To: support@example.test
+            Subject: test
+
+            body
+          RAW
+        end
+
+        it 'still sets article sender to Agent' do
+          described_class.new.process(channel, raw_mail)
+          expect(Ticket::Article.last.sender.name).to eq('Agent')
+        end
+      end
+
+      context 'with encoded-word in display name only' do
+        let(:raw_mail) do
+          <<~RAW
+            From: =?utf-8?Q?Some+Name?= <agent@victim.example>
+            To: support@example.test
+            Subject: test
+
+            body
+          RAW
+        end
+
+        it 'still sets article sender to Agent' do
+          described_class.new.process(channel, raw_mail)
+          expect(Ticket::Article.last.sender.name).to eq('Agent')
+        end
+      end
+
+      context 'with single QP encoded-word' do
+        let(:raw_mail) do
+          <<~RAW
+            From: =?utf-8?Q?agent=40victim.example?=
+            To: support@example.test
+            Subject: test
+
+            body
+          RAW
+        end
+
+        it 'still sets article sender to Agent' do
+          described_class.new.process(channel, raw_mail)
+          expect(Ticket::Article.last.sender.name).to eq('Agent')
+        end
+      end
+
     end
 
     describe "invalid 'Resent-Date' header field" do

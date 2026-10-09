@@ -58,7 +58,7 @@ class TicketArticlesController < ApplicationController
         next if !authorized?(article, :show?)
 
         record_ids.push article.id
-        assets = article.assets({})
+        assets = article.assets(assets)
       end
       render json: {
         record_ids: record_ids,
@@ -153,6 +153,7 @@ class TicketArticlesController < ApplicationController
   def ticket_attachment_upload_clone_by_article
     article = Ticket::Article.find(params[:article_id])
     authorize!(article.ticket, :show?)
+    authorize!(article, :show?)
 
     render json: {
       attachments: article_attachments_clone(article),
@@ -175,6 +176,8 @@ class TicketArticlesController < ApplicationController
       ticket = article.ticket
       authorize!(ticket, :show?)
     end
+
+    authorize!(article, :show?)
 
     list = article.attachments || []
     access = false

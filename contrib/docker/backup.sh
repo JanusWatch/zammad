@@ -6,7 +6,8 @@ set -o pipefail
 : "${BACKUP_DIR:=/var/tmp/zammad}"
 : "${RESTORE_DIR:=/var/tmp/zammad/restore}"
 : "${BACKUP_TIME:=03:00}"
-: "${BACKUP_ON_START:=true}"
+: "${BACKUP_ON_START:=false}"
+: "${BACKUP_ONCE:=false}"
 : "${HOLD_DAYS:=10}"
 
 # See DOCKERFILE for environment variables.
@@ -99,6 +100,9 @@ function perform_restore {
     tar -C / --overwrite -xzf "${RESTORE_STORAGE_FILE}" -v opt/zammad/storage
   fi
 
+  echo "Clearing cache…"
+  bundle exec rails r "Rails.cache.clear"
+
   TIMESTAMP="$(date +'%Y%m%d%H%M%S')"
   mv "${RESTORE_DIR}" "${RESTORE_DIR}_completed_${TIMESTAMP}"
   echo "Restore directory was moved to ${RESTORE_DIR}_completed_${TIMESTAMP}. Feel free to delete it."
@@ -119,6 +123,13 @@ elif [ "${BACKUP_ONESHOT}" = "yes" ]; then
   zammad_backup
 else
   check_zammad_ready
+
+  if [ "${BACKUP_ONCE}" = "true" ]; then
+    echo "Performing a single backup…"
+    zammad_backup
+    exit 0
+  fi
+
   echo "Starting backup loop…"
   zammad_backup_loop
 fi

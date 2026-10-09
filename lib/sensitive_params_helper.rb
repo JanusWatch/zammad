@@ -27,6 +27,10 @@ class SensitiveParamsHelper
 
       next if !hash&.key?(key)
 
+      # Unset values are not secrets - masking them would make an unset field look configured.
+      # Deliberately not `blank?`: `false` and whitespace-only strings are values, not the absence of one.
+      next if unset?(hash[key])
+
       payload.deep_merge! build_masked_sensitive_hash(attr)
     end
 
@@ -59,6 +63,11 @@ class SensitiveParamsHelper
 
   private
 
+  # Covers nil and the empty String / Hash / Array, but not `false`.
+  def unset?(value)
+    value.nil? || (value.respond_to?(:empty?) && value.empty?)
+  end
+
   def build_masked_sensitive_hash(attr)
     *path, key = attr.to_s.split('.')
 
@@ -69,15 +78,11 @@ class SensitiveParamsHelper
   end
 
   def unmask_single_attribute(attr, params, original_data)
-    # binding.pry
     *path, key = attr.to_s.split('.')
 
     hash = path.blank? ? params : params.dig(*path)
-    # binding.pry
 
     return if !hash || hash[key] != SENSITIVE_MASK
-
-    # binding.pry
 
     hash[key] = original_data.dig(*path, key)
   end
