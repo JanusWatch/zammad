@@ -1683,18 +1683,6 @@ RSpec.describe 'User', performs_jobs: true, type: :request do
         expect(NotificationFactory::Mailer).to have_received(:notification).with(include(template: 'password_change'))
       end
     end
-
-    context 'with a password change' do
-      before do
-        allow(NotificationFactory::Mailer).to receive(:notification)
-
-        put "/api/v1/users/#{agent.id}", params: { password: 'SomeTestPassword123!' }, as: :json
-      end
-
-      it 'notifies the user' do
-        expect(NotificationFactory::Mailer).to have_received(:notification).with(include(template: 'password_change'))
-      end
-    end
   end
 
   describe 'PUT /api/v1/users/unlock/{id}' do
