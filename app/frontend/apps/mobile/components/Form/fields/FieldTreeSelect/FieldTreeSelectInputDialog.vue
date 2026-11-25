@@ -13,6 +13,7 @@ import type {
 import useSelectOptions from '#shared/composables/useSelectOptions.ts'
 import { useTraverseOptions } from '#shared/composables/useTraverseOptions.ts'
 import { useLocaleStore } from '#shared/stores/locale.ts'
+import { deaccent } from '#shared/utils/labelMatching.ts'
 
 import CommonDialog from '#mobile/components/CommonDialog/CommonDialog.vue'
 import CommonInputSearch from '#mobile/components/CommonInputSearch/CommonInputSearch.vue'
@@ -99,8 +100,6 @@ useTraverseOptions(() => dialog.value?.parentElement, {
     return false
   },
 })
-
-const deaccent = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 
 const filteredOptions = computed(() => {
   // In case we are not currently filtering for a parent, search across all options.
@@ -240,7 +239,7 @@ const getCurrentIndex = (option: FlatSelectOption) => {
         <CommonIcon
           v-if="context.multiple"
           :class="{
-            '!text-white': isCurrentValue(option.value),
+            'text-white!': isCurrentValue(option.value),
             'opacity-30': option.disabled,
           }"
           :name="isCurrentValue(option.value) ? 'check-box-yes' : 'check-box-no'"
@@ -261,7 +260,7 @@ const getCurrentIndex = (option: FlatSelectOption) => {
           v-else-if="option.icon"
           :name="option.icon"
           :class="{
-            '!text-white': isCurrentValue(option.value),
+            'text-white!': isCurrentValue(option.value),
             'opacity-30': option.disabled,
           }"
           size="small"

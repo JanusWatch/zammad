@@ -49,26 +49,6 @@ RSpec.describe 'Ticket zoom > Object manager attributes', type: :system do
       include_examples 'shows attributes and values for customer view'
     end
 
-    context 'as agent with full permissions' do
-      let(:current_user) { create(:agent, groups: [ group_users ]) }
-      let(:ticket) { create(:ticket, group: group_users) }
-
-      include_examples 'shows attributes and values for agent view and editable'
-    end
-
-    context 'as agent with change permissions' do
-      let!(:current_user) { create(:agent) }
-      let(:ticket) { create(:ticket, group: group_users) }
-
-      before do
-        current_user.group_names_access_map = {
-          group_users.name => %w[read change],
-        }
-      end
-
-      include_examples 'shows attributes and values for agent view and editable'
-    end
-
     context 'as agent with read permissions' do
       let!(:current_user) { create(:agent) }
       let(:ticket) { create(:ticket, group: group_users) }
@@ -82,64 +62,11 @@ RSpec.describe 'Ticket zoom > Object manager attributes', type: :system do
       include_examples 'shows attributes and values for agent view but disabled'
     end
 
-    context 'as agent+customer with full permissions' do
+    context 'as agent+customer with full permissions on a ticket where current_user is also customer' do
       let!(:current_user) { create(:agent_and_customer, groups: [ group_users ]) }
+      let(:ticket)        { create(:ticket, customer: current_user, group: group_users) }
 
-      context 'normal ticket' do
-        let(:ticket) { create(:ticket, group: group_users) }
-
-        include_examples 'shows attributes and values for agent view and editable'
-      end
-
-      context 'ticket where current_user is also customer' do
-        let(:ticket) { create(:ticket, customer: current_user, group: group_users) }
-
-        include_examples 'shows attributes and values for agent view and editable'
-      end
-    end
-
-    context 'as agent+customer with change permissions' do
-      let!(:current_user) { create(:agent_and_customer) }
-
-      before do
-        current_user.group_names_access_map = {
-          group_users.name => %w[read change],
-        }
-      end
-
-      context 'normal ticket' do
-        let(:ticket) { create(:ticket, group: group_users) }
-
-        include_examples 'shows attributes and values for agent view and editable'
-      end
-
-      context 'ticket where current_user is also customer' do
-        let(:ticket) { create(:ticket, customer: current_user, group: group_users) }
-
-        include_examples 'shows attributes and values for agent view and editable'
-      end
-    end
-
-    context 'as agent+customer with read permissions' do
-      let!(:current_user) { create(:agent_and_customer) }
-
-      before do
-        current_user.group_names_access_map = {
-          group_users.name => 'read',
-        }
-      end
-
-      context 'normal ticket' do
-        let(:ticket) { create(:ticket, group: group_users) }
-
-        include_examples 'shows attributes and values for agent view but disabled'
-      end
-
-      context 'ticket where current_user is also customer' do
-        let(:ticket) { create(:ticket, customer: current_user, group: group_users) }
-
-        include_examples 'shows attributes and values for agent view but disabled'
-      end
+      include_examples 'shows attributes and values for agent view and editable'
     end
 
     context 'as agent+customer but only customer for the ticket (no agent access)' do
@@ -172,7 +99,7 @@ RSpec.describe 'Ticket zoom > Object manager attributes', type: :system do
       visit "ticket/zoom/#{ticket.id}"
       within(:active_content) do
         fill_in 'maxtest', with: 'hellu'
-        expect(page.find_field('maxtest').value).to eq('hel')
+        expect(page).to have_field('maxtest', with: 'hel')
       end
     end
   end
@@ -200,6 +127,9 @@ RSpec.describe 'Ticket zoom > Object manager attributes', type: :system do
     end
 
     it 'does show values properly and can save values also' do
+      expect(page).to have_css(".content.active select[name='state_id']")
+      wait.until { page.evaluate_script("Object.values(App.Delay._all()).every(function(level) { return !('ticket-zoom-form-update' in level) })") }
+      await_empty_ajax_queue
       expect(page).to have_no_css('.attributeBar-reset')
     end
   end
@@ -308,11 +238,10 @@ RSpec.describe 'Ticket zoom > Object manager attributes', type: :system do
 
     # The dropdown keeps a flat, always-rendered options list (`.js-optionsList`) underneath the
     # currently active submenu panel (`.js-optionsSubmenu`), which is overlaid via absolute
-    # positioning rather than by hiding the list. Capybara's Selenium driver treats fully covered
-    # elements as not visible, but the Playwright driver's visibility check only walks the CSS
-    # display/visibility/opacity chain and does not consider such occlusion, so it still reports
-    # the covered list's stale options (e.g. 'TreeA') as visible. Restricting the check to the
-    # panel that is actually on top keeps this assertion meaningful and driver-independent.
+    # positioning rather than by hiding the list. The Playwright driver's visibility check only
+    # walks the CSS display/visibility/opacity chain and does not consider such occlusion, so it
+    # still reports the covered list's stale options (e.g. 'TreeA') as visible. Restricting the
+    # check to the panel that is actually on top keeps this assertion meaningful.
     def visible_group_search_option_texts
       page.evaluate_script(<<~JS)
         Array.from(

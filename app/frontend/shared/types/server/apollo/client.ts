@@ -1,8 +1,10 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
+import type { Subscriptions } from '#shared/graphql/types.ts'
+
 import type { ImportGlobEagerOutput } from '../../utils.ts'
-import type { InMemoryCacheConfig } from '@apollo/client/cache/inmemory/types'
-import type { FetchResult } from '@apollo/client/core'
+import type { FetchResult } from '@apollo/client'
+import type { InMemoryCacheConfig } from '@apollo/client/cache'
 import type { DocumentNode } from 'graphql'
 import type { App } from 'vue'
 
@@ -19,6 +21,16 @@ export interface ClientBatchContext {
 
 export interface ClientWebsocketContext {
   active: boolean
+}
+
+// Subscriptions whose updates for the changes of an operation are not sent back to the same browser tab,
+//  e.g. because the operation result or the form already holds them.
+export type ClientSkipSubscriptionsContext = Exclude<keyof Subscriptions, '__typename'>[]
+
+export interface ClientSubscriptionContext {
+  // Subscriptions which also work for unauthenticated users must survive the
+  //  cleanup on logout, e.g. the config updates for the login screen.
+  keepAliveOnLogout: boolean
 }
 
 export interface DebugLinkRequestOutput {

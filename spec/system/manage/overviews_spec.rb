@@ -65,8 +65,8 @@ RSpec.describe 'Manage > Overviews', type: :system do
 
       it 'does not show customer ticket that is not selected' do
         within '.js-preview .js-tableBody' do
-          expect(page).to have_no_selector('tr.item', text: ticket_two.title)
-          expect(page).to have_no_selector('tr.item', text: ticket_three.title)
+          expect(page).to have_no_css('tr.item', text: ticket_two.title)
+          expect(page).to have_no_css('tr.item', text: ticket_three.title)
         end
       end
     end
@@ -76,7 +76,7 @@ RSpec.describe 'Manage > Overviews', type: :system do
 
       it 'does not show selected customer ticket' do
         within '.js-preview .js-tableBody' do
-          expect(page).to have_no_selector('tr.item', text: ticket_one.title)
+          expect(page).to have_no_css('tr.item', text: ticket_one.title)
         end
       end
 
@@ -107,7 +107,7 @@ RSpec.describe 'Manage > Overviews', type: :system do
 
       it 'does not show customer ticket that is not selected' do
         within '.js-preview .js-tableBody' do
-          expect(page).to have_no_selector('tr.item', text: ticket_three.title)
+          expect(page).to have_no_css('tr.item', text: ticket_three.title)
         end
       end
     end
@@ -117,8 +117,8 @@ RSpec.describe 'Manage > Overviews', type: :system do
 
       it 'does not show selected customer ticket' do
         within '.js-preview .js-tableBody' do
-          expect(page).to have_no_selector('tr.item', text: ticket_one.title)
-          expect(page).to have_no_selector('tr.item', text: ticket_two.title)
+          expect(page).to have_no_css('tr.item', text: ticket_one.title)
+          expect(page).to have_no_css('tr.item', text: ticket_two.title)
         end
       end
 
@@ -470,6 +470,18 @@ RSpec.describe 'Manage > Overviews', type: :system do
       toggle_out_of_office(from: 'yes', to: 'no')
 
       expect(overview.reload.out_of_office).to be(false)
+    end
+  end
+
+  context 'when the checklist feature is enabled' do
+    it 'does not offer the checklist condition' do
+      visit '/#manage/overviews'
+      click_on 'New Overview'
+
+      in_modal do
+        expect(page).to have_css('.ticket_selector .js-attributeSelector option[value="ticket.state_id"]')
+        expect(page).to have_no_css('.ticket_selector .js-attributeSelector option[value="ticket.checklist_existing"]')
+      end
     end
   end
 end

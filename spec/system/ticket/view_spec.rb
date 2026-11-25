@@ -217,7 +217,7 @@ RSpec.describe 'Ticket views', authenticated_as: :authenticate, type: :system do
         display_macro_batches ticket1
 
         within :active_content do
-          expect(page).to have_no_selector('.batch-overlay-backdrop')
+          expect(page).to have_no_css('.batch-overlay-backdrop')
         end
       end
     end
@@ -238,7 +238,7 @@ RSpec.describe 'Ticket views', authenticated_as: :authenticate, type: :system do
           within(:active_content) do
             display_macro_batches Ticket.first
 
-            expect(page).to have_no_selector('.batch-overlay-macro-entry.small')
+            expect(page).to have_no_css('.batch-overlay-macro-entry.small')
           end
         end
       end
@@ -477,6 +477,7 @@ RSpec.describe 'Ticket views', authenticated_as: :authenticate, type: :system do
       it 'does show the values grouped and sorted by date key value (yyy-mm-dd) instead of display value' do
         visit 'ticket/view/all_unassigned'
 
+        expect(page).to have_css('.js-tableBody td[colspan="6"]', count: 5)
         headers = all('.js-tableBody td[colspan="6"]').map(&:text)
 
         expect(headers).to eq ['01/17/2018', '08/19/2018', '01/19/2019', '08/18/2021', '-']
@@ -505,6 +506,7 @@ RSpec.describe 'Ticket views', authenticated_as: :authenticate, type: :system do
       it 'does show the values grouped and sorted by display value instead of key value' do
         visit 'ticket/view/all_unassigned'
 
+        expect(page).to have_css('.js-tableBody td[colspan="6"]', count: 4)
         headers = all('.js-tableBody td[colspan="6"]').map(&:text)
 
         expect(headers).to eq ['-', 'Xxx c', 'Yyy b', 'Zzz a']

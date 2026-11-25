@@ -62,6 +62,46 @@ RSpec.describe Sessions::Store::File do
   end
 
   describe '#create' do
+    context 'when the session exists already' do
+      let(:client_id) { '190384' }
+
+      before do
+        instance.create(client_id, { user: {}, meta: {} }.to_json)
+      end
+
+      after do
+        instance.destroy(client_id)
+      end
+
+      it 'replaces the session data' do
+        instance.create(client_id, { user: { 'id' => 1 }, meta: {} }.to_json)
+
+        expect(instance.get(client_id)).to include(user: { 'id' => 1 })
+      end
+
+      it 'leaves only the session file' do
+        instance.create(client_id, { user: { 'id' => 1 }, meta: {} }.to_json)
+
+        expect(Dir.children(instance.send(:safe_session_path, client_id))).to eq(['session'])
+      end
+
+      # The login creates the session again, while broadcasts read every session.
+      it 'keeps the session while it is read at the same time' do
+        lost = 200.times.count do
+          reader = Thread.new { 20.times { instance.get(client_id) } }
+          instance.create(client_id, { user: { 'id' => 1 }, meta: {} }.to_json)
+          reader.join
+
+          next false if instance.session_exists?(client_id)
+
+          instance.create(client_id, { user: {}, meta: {} }.to_json)
+          true
+        end
+
+        expect(lost).to be_zero
+      end
+    end
+
     context 'when client_id contains path traversal' do
       it 'raises ArgumentError' do
         expect { instance.create('../malicious', '{}') }
@@ -117,6 +157,58 @@ RSpec.describe Sessions::Store::File do
     end
   end
 
+  describe '#get_many' do
+    before do
+      instance.create('a1', { user: { 'id' => 1 }, meta: { type: 'websocket' } }.to_json)
+      instance.create('a2', { user: {}, meta: { type: 'ajax' } }.to_json)
+      instance.create('a3', { user: { 'id' => 3 }, meta: { type: 'websocket' } }.to_json)
+      File.delete("#{instance.send(:safe_session_path, 'a2')}/session")
+    end
+
+    after do
+      %w[a1 a2 a3].each { instance.destroy(it) }
+    end
+
+    it 'returns the sessions by client id, like #get' do
+      expect(instance.get_many(%w[a3 a1])).to eq('a3' => instance.get('a3'), 'a1' => instance.get('a1'))
+    end
+
+    it 'removes a session whose value is missing' do
+      expect { instance.get_many(%w[a1 a2 a3]) }
+        .to change { instance.sessions.include?('a2') }
+        .to(false)
+    end
+
+    it 'leaves out a session whose value is missing' do
+      expect(instance.get_many(%w[a1 a2 a3]).keys).to eq(%w[a1 a3])
+    end
+
+    it 'returns an empty hash without client ids' do
+      expect(instance.get_many([])).to eq({})
+    end
+  end
+
+  describe '#send_data_many' do
+    before do
+      %w[a1 a2].each { instance.create(it, { user: { 'id' => 1 }, meta: {} }.to_json) }
+    end
+
+    after do
+      %w[a1 a2].each { instance.destroy(it) }
+    end
+
+    it 'keeps the order of the messages per client', :aggregate_failures do
+      instance.send_data_many([['a1', { event: 'one' }], ['a2', { event: 'one' }], ['a1', { event: 'two' }], ['a2', { event: 'three' }]])
+
+      expect(instance.queue('a1').pluck('event')).to eq(%w[one two])
+      expect(instance.queue('a2').pluck('event')).to eq(%w[one three])
+    end
+
+    it 'does nothing without messages' do
+      expect { instance.send_data_many([]) }.not_to raise_error
+    end
+  end
+
   describe '#new_message_filename_for' do
     let(:client_id) { 'abc123' }
 
@@ -146,6 +238,51 @@ RSpec.describe Sessions::Store::File do
         expect { instance.send(:new_message_filename_for, '../malicious') }
           .to raise_error(ArgumentError, %r{Invalid client_id})
       end
+    end
+  end
+
+  describe '#clear_queue' do
+    let(:client_id) { 'abc123' }
+
+    before do
+      instance.create(client_id, { user: { 'id' => 1 }, meta: {} }.to_json)
+      instance.send_data(client_id, { event: 'test' })
+    end
+
+    after do
+      instance.destroy(client_id)
+    end
+
+    it 'removes the queued messages' do
+      instance.clear_queue(client_id)
+
+      expect(instance.queue(client_id)).to be_empty
+    end
+
+    it 'keeps the session' do
+      instance.clear_queue(client_id)
+
+      expect(instance.get(client_id)).to include(user: { 'id' => 1 })
+    end
+  end
+
+  describe '#queue' do
+    let(:client_id) { 'abc123' }
+
+    before do
+      instance.create(client_id, '{}')
+      instance.send_data(client_id, { event: 'test' })
+    end
+
+    after do
+      instance.destroy(client_id)
+    end
+
+    it 'skips a message removed while the queue is read' do
+      allow(File).to receive(:open).and_call_original
+      allow(File).to receive(:open).with(%r{/send-}, 'rb').and_raise(Errno::ENOENT)
+
+      expect(instance.queue(client_id)).to be_empty
     end
   end
 end

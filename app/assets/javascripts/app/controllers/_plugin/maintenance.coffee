@@ -24,6 +24,17 @@ class Maintenance extends App.Controller
             @maintenanceForceRefresh(data)
     )
 
+    # Import mode is switched by the import controllers and background services, and maintenance
+    # mode may be switched outside the admin interface, so the websocket maintenance event cannot
+    # be relied on: react to the settings themselves.
+    @controllerBind('config_update_local', (data) =>
+      return if data.name not in ['maintenance_mode', 'import_mode']
+      return if @permissionCheck('admin.maintenance')
+      # A switched session is judged by the switching user, which only the backend knows.
+      return if @Config.get('switch_back_to_possible')
+      @maintenanceMode(on: data.value)
+    )
+
   showMessage: (message = {}) =>
     if message.reload
       @disconnectClient()

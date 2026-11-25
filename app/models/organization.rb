@@ -25,7 +25,7 @@ class Organization < ApplicationModel
   default_scope { order(:id) }
 
   has_many :members, class_name: 'User', after_add: :member_update, after_remove: :member_update
-  has_and_belongs_to_many :secondary_members, class_name: 'User', after_add: :member_update, after_remove: :member_update
+  has_and_belongs_to_many :secondary_members, class_name: 'User', before_add: %i[check_secondary_member_uniqueness check_secondary_members_on_commit], after_add: :member_update, after_remove: :member_update
   has_many :tickets, class_name: 'Ticket'
 
   belongs_to :email_address, optional: true
@@ -33,6 +33,7 @@ class Organization < ApplicationModel
 
   before_create :domain_cleanup
   before_update :domain_cleanup
+  after_commit  :members_update_after_create, on: :create
 
   available_perform_change_actions :attribute_updates
 
@@ -40,6 +41,7 @@ class Organization < ApplicationModel
   # the transaction dispatcher must be run after the workflow checks!
   include ChecksCoreWorkflow
   include HasTransactionDispatcher
+  include ChecksSecondaryOrganizationsOnCommit
 
   core_workflow_screens 'create', 'edit'
   core_workflow_admin_screens 'create', 'edit'
@@ -79,13 +81,15 @@ class Organization < ApplicationModel
 
     super()
 
-    secondary_members_to_touch.each(&:touch)
+    secondary_members_to_touch.each { |user| member_touch(user) }
   end
 
   def attributes_with_association_ids
     attributes = super
     attributes['secondary_member_ids'] = secondary_member_ids
-    attributes
+
+    # `super` filters before this attribute is merged in, so run the filter over the result again.
+    filter_unauthorized_attributes(attributes)
   end
 
   private
@@ -106,11 +110,37 @@ class Organization < ApplicationModel
   end
 
   def member_update(user)
-    if persisted?
-      touch # rubocop:disable Rails/SkipsModelValidations
-    end
+    # A new organization has its members only once it is saved: the primary ones are saved along
+    #   with it and remember the change themselves, the secondary ones are told after the commit.
+    return if new_record?
 
-    user&.touch # rubocop:disable Rails/SkipsModelValidations
+    touch # rubocop:disable Rails/SkipsModelValidations
+    member_touch(user)
+  end
+
+  # Not iterated in memory: that would load the association and leave an empty target behind on
+  #   every organization created without secondary members, masking the ones joined later.
+  def members_update_after_create
+    secondary_members.find_each { |user| member_touch(user) }
+  end
+
+  def member_touch(user)
+    user.note_membership_change
+    user.touch # rubocop:disable Rails/SkipsModelValidations
+  end
+
+  def check_secondary_member_uniqueness(user)
+    return if secondary_member_ids.exclude?(user.id)
+
+    errors.add :base, __('Secondary organizations cannot include the same organization twice.')
+
+    raise ActiveRecord::RecordInvalid, self
+  end
+
+  def check_secondary_members_on_commit(_user)
+    return if new_record?
+
+    check_secondary_organizations_on_commit(User.where(organization_id: id))
   end
 
   def unset_associations

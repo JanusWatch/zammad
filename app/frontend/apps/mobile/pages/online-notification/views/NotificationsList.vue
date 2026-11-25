@@ -44,13 +44,9 @@ const markingAsSeen = ref(false)
 const runMarkAllRead = async () => {
   markingAsSeen.value = true
 
-  const onlineNotificationIds = notifications.value
-    .filter((elem) => !elem.seen)
-    .map((elem) => elem.id)
-
   mutationTriggered = true
 
-  await markAllRead(onlineNotificationIds)
+  await markAllRead()
 
   markingAsSeen.value = false
 }
@@ -87,7 +83,10 @@ const notificationRemoved = () => {
 }
 
 // TODO: currently this triggered in some situations a real subscription on the server: https://github.com/apollographql/apollo-client/issues/10117
-const { unseenCount, notificationsCountSubscription } = useOnlineNotificationCount()
+// The same variables as the push cleanup, so the client holds one subscription.
+const { unseenCount, notificationsCountSubscription } = useOnlineNotificationCount({
+  withPushTags: true,
+})
 
 notificationsCountSubscription.watchOnResult(() => {
   notificationsHandler.refetch()

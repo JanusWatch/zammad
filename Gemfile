@@ -3,8 +3,8 @@
 source 'https://rubygems.org'
 
 # core - base
-ruby '3.4.9'
-gem 'rails', '~> 8.0.0'
+ruby '3.4.13'
+gem 'rails', '~> 8.1.0'
 gem 'rake'
 
 # core - rails additions
@@ -21,6 +21,7 @@ gem 'puma', group: :puma
 gem 'pg', '~> 1.5', '>= 1.5.4', group: :postgres
 
 # core - asynchrous task execution
+gem 'benchmark' # undeclared delayed_job dependency
 gem 'daemons'
 gem 'delayed_job', git: 'https://github.com/zammad-deps/delayed_job', branch: 'threadsafe'
 gem 'delayed_job_active_record', git: 'https://github.com/zammad-deps/delayed_job_active_record', branch: 'update-limit-143'
@@ -120,6 +121,9 @@ gem 'omniauth-weibo-oauth2'
 # Rate limiting
 gem 'rack-attack'
 
+# feature - MCP server
+gem 'mcp', '~> 1.8', '>= 1.8.1'
+
 # channels
 gem 'koala'
 gem 'telegram-bot-ruby'
@@ -202,6 +206,9 @@ gem 'macaddr'
 # watch file changes (also relevant for graphql generation in context of CDs)
 gem 'listen'
 
+# web push notifications
+gem 'web-push'
+
 # language detection
 gem 'cld'
 
@@ -216,6 +223,7 @@ gem 'elasticsearch', '8.11.2', require: false
 group :development, :test do
 
   # test frameworks
+  gem 'rspec_junit_formatter'
   gem 'rspec-rails'
   gem 'rspec-retry'
   gem 'shoulda-matchers'
@@ -223,15 +231,16 @@ group :development, :test do
   # for testing Pundit authorisation policies in RSpec
   gem 'pundit-matchers'
 
-  # UI tests w/ Selenium
+  # UI tests w/ Playwright. playwright-ruby-client is pulled in by the driver;
+  #   it is declared here so Renovate sees it and can keep it in lockstep with
+  #   the playwright npm package.
   gem 'capybara'
-  gem 'selenium-webdriver'
-
-  # Playwright pilot (throwaway evaluation)
   gem 'capybara-playwright-driver'
+  gem 'playwright-ruby-client'
 
   # code QA
   gem 'brakeman', require: false
+  gem 'bundler-audit', require: false
   gem 'overcommit', require: false
   gem 'rubocop', require: false
   gem 'rubocop-capybara', require: false
@@ -267,9 +276,6 @@ group :development, :test do
 
   # Self-signed localhost certificates for puma / capybara.
   gem 'localhost'
-
-  # Keycloak admin tool for setting up SAML auth tests
-  gem 'ruby-keycloak-admin'
 
   # Debugging and profiling
   gem 'pry-doc', require: false # This gem is very large, so don't include it in production.

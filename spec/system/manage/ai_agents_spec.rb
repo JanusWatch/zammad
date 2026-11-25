@@ -12,7 +12,7 @@ RSpec.describe 'AI > AI Agents', type: :system do
     it 'shows a warning message' do
       visit '#ai/ai_agents'
 
-      expect(page).to have_text('The provider configuration is disabled. Before proceeding, please set up at least one provider in AI > Providers.')
+      expect(page).to have_text('The AI provider configuration is disabled. Before proceeding, please set up at least one provider in AI > Providers.')
     end
   end
 
@@ -158,6 +158,7 @@ RSpec.describe 'AI > AI Agents', type: :system do
             click_on 'Next'
             click_on 'Next'
 
+            expect(page).to have_text('NOTE')
             expect(page).to have_no_text('For this agent to run, it needs to be used in an automation (e.g. trigger, scheduler, macro).')
 
             set_select_field_label('active', 'inactive')

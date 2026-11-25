@@ -6,6 +6,7 @@ import { storeToRefs } from 'pinia'
 import { computed, ref, toRef, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { useOnlineNotificationSeen } from '#shared/composables/useOnlineNotification/useOnlineNotificationSeen.ts'
 import { convertToGraphQLId } from '#shared/graphql/utils.ts'
 import { useLocaleStore } from '#shared/stores/locale.ts'
 import { scrollIntoView } from '#shared/utils/dom.ts'
@@ -46,12 +47,23 @@ const answerId = computed(() =>
     : undefined,
 )
 
-const { answer, loading } = useKnowledgeBaseAnswer({
+const { answer, cachedHeader, headerLoading, loading } = useKnowledgeBaseAnswer({
   answerId,
   locale: toRef(props, 'localeCode'),
 })
 
 useScrollPosition(contentContainerElement)
+
+// An online notification about an answer is about one of its translations, and opening that
+//   translation is what marks the notification as read - the same way the mobile ticket, user and
+//   organization views do it. It has to happen here rather than in the notification list: the
+//   mobile app has no answer view, so its list links into this app, and that full page load drops
+//   any mutation the list itself started.
+const answerTranslation = computed(() =>
+  answer.value?.translation?.id ? { id: answer.value.translation.id } : undefined,
+)
+
+useOnlineNotificationSeen(answerTranslation)
 
 const route = useRoute()
 const router = useRouter()
@@ -99,7 +111,6 @@ const actions = computed<MenuItem[]>(() => {
       key: 'delete-answer',
       label: __('Delete answer'),
       icon: 'trash3',
-      variant: 'danger',
       separatorTop: true,
       // Deleting the page being read, so it hands over where to go instead.
       onClick: () =>
@@ -158,10 +169,14 @@ watch(
     >
       <CommonIndicator v-model="isReachingTop" class="translate-y-1" />
 
+      <!-- `headerLoading`, not the page's `loading`: everything the header shows is in the cache
+           the moment an answer is opened from a listing, so it appears at once while the body
+           below still skeletons - the same split the browse view makes. -->
       <KnowledgeBaseAnswerTopBarHeader
         :content-container-element="contentContainerElement"
         :answer="answer"
-        :loading="loading"
+        :cached-header="cachedHeader"
+        :loading="headerLoading"
       />
 
       <!-- Similar to the column of the ticket article list (ArticleList.vue), so an

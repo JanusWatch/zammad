@@ -1,14 +1,15 @@
 import * as Types from '#shared/graphql/types.ts';
 
 import gql from 'graphql-tag';
-import * as VueApolloComposable from '@vue/apollo-composable';
+import * as VueApolloComposable from '@vue/apollo-composable/compat';
 import * as VueCompositionApi from 'vue';
 export type ReactiveFunction<TParam> = () => TParam;
 
 export const KnowledgeBaseSearchDocument = gql`
-    query knowledgeBaseSearch($query: String!, $categoryId: ID, $locale: String, $pageSize: Int = 30, $cursor: String) {
+    query knowledgeBaseSearch($query: String!, $entity: EnumKnowledgeBaseSearchEntity!, $categoryId: ID, $locale: String, $pageSize: Int = 30, $cursor: String) {
   knowledgeBaseSearch(
     query: $query
+    entity: $entity
     categoryId: $categoryId
     locale: $locale
     first: $pageSize

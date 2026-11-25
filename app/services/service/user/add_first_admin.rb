@@ -10,9 +10,7 @@ class Service::User::AddFirstAdmin < Service::Base
   end
 
   def execute
-    if Service::System::CheckSetup.done?
-      raise Service::System::CheckSetup::SystemSetupError, __('This system has already been configured and an administrator account exists.')
-    end
+    setup_pending!
 
     if user_data[:email].blank?
       raise Exceptions::MissingAttribute.new('email', __("The required attribute 'email' is missing."))
@@ -30,6 +28,18 @@ class Service::User::AddFirstAdmin < Service::Base
 
   private
 
+  # CheckSetup reports an import before it checks for a completed setup, so the
+  # import has to be refused on its own.
+  def setup_pending!
+    if Service::System::CheckSetup.done?
+      raise Service::System::CheckSetup::SystemSetupError, __('This system has already been configured and an administrator account exists.')
+    end
+
+    return if !Service::System::CheckSetup.importing?
+
+    raise Service::System::CheckSetup::SystemSetupError, __('The system setup cannot be started, because there is another one running or it was completed before.')
+  end
+
   def configure_system(user:, request:)
     Setting.set('system_init_done', true)
     Service::Image.organization_suggest(user.email) if user.email.present?
@@ -37,7 +47,7 @@ class Service::User::AddFirstAdmin < Service::Base
     begin
       TextModule.load(request.env['HTTP_ACCEPT_LANGUAGE'] || 'en-us')
     rescue => e
-      logger.error "Unable to load text modules #{request.env['HTTP_ACCEPT_LANGUAGE'] || 'en-us'}: #{e.message}"
+      Rails.logger.error "Unable to load text modules #{request.env['HTTP_ACCEPT_LANGUAGE'] || 'en-us'}: #{e.message}"
     end
   end
 end

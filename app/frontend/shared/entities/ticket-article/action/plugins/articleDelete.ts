@@ -22,7 +22,7 @@ const deleteAction = async (article: TicketArticle) => {
     { errorNotificationMessage: __('The article could not be deleted.') },
   )
 
-  mutation.send()
+  return mutation.send()
 }
 
 const hasDeleteTimeframe = (deleteTimeframe: number) => deleteTimeframe && deleteTimeframe > 0
@@ -77,6 +77,7 @@ const actionPlugin: TicketArticleActionPlugin = {
       label: __('Delete article'),
       name: 'articleDelete',
       icon: 'trash',
+      separatorTop: true,
       perform: () => deleteAction(article),
       view: {
         agent: ['change'],

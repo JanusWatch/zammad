@@ -1,21 +1,25 @@
 .template_docker:
   image: docker
   stage: test
-  interruptible: false
+  extends:
+    - .no_artifact_dependencies
+  needs:
+    - !reference [.needs, lint]
+  timeout: 30 minutes
   rules:
-    - !reference [.job_rules, variable_filters]
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_NAME =~ /^(private|cherry-pick-|revert-|renovate|dependabot)/
+    - !reference [.rule_fragments, main_repository_only]
+    - !reference [.rule_fragments, variable_filters]
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_NAME =~ $CI_ZAMMAD_MR_ONLY_BRANCH_PATTERN
       when: manual
       allow_failure: true
     - when: on_success
   services: []
-  cache: []
   variables:
     ZAMMAD_IMAGE_TAG: "ci-${CI_JOB_ID}-${CI_COMMIT_SHORT_SHA}"
     ZAMMAD_IMAGE_REPO: "zammad"
     ZAMMAD_IMAGE: "${ZAMMAD_IMAGE_REPO}:${ZAMMAD_IMAGE_TAG}"
   before_script:
-    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+    - echo "$CI_JOB_TOKEN" | docker login -u gitlab-ci-token --password-stdin $CI_REGISTRY
     - git clone --depth=1 https://github.com/zammad/zammad-docker-compose.git
     # Make the stack use the image that was just built.
     - echo "IMAGE_REPO=${ZAMMAD_IMAGE_REPO}" > zammad-docker-compose/.env
@@ -30,9 +34,11 @@
         zammad-nginx:
           ports: !reset []
       COMPOSE_OVERRIDE_FILE
+  # Also runs for a canceled job, so a new commit can stop these jobs without leaving
+  #   their stack or image behind on the runner host.
   after_script:
     - cd zammad-docker-compose
-    - docker compose down --timeout 0 --volumes
+    - docker compose -p "zammad-docker-ci-${ZAMMAD_IMAGE_TAG}" down --timeout 0 --volumes
     - docker image rm ${ZAMMAD_IMAGE}
 
 docker base tests:

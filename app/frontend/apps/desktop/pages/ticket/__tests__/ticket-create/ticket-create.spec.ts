@@ -5,12 +5,13 @@ import { beforeEach } from 'vitest'
 
 import ticketArticleCustomerObjectAttributes from '#tests/graphql/factories/fixtures/ticket-article-customer-object-attributes.ts'
 import ticketCustomerObjectAttributes from '#tests/graphql/factories/fixtures/ticket-customer-object-attributes.ts'
+import { getByIconName } from '#tests/support/components/iconQueries.ts'
 import { getTestRouter } from '#tests/support/components/renderComponent.ts'
 import { visitView } from '#tests/support/components/visitView.ts'
 import { mockApplicationConfig } from '#tests/support/mock-applicationConfig.ts'
 import { mockPermissions } from '#tests/support/mock-permissions.ts'
 
-import { mockObjectManagerFrontendAttributesQuery } from '#shared/entities/object-attributes/graphql/queries/objectManagerFrontendAttributes.mocks.ts'
+import { mockObjectManagerFrontendAttributesQuery } from '#shared/entities/core/attributes/graphql/queries/objectManagerFrontendAttributes.mocks.ts'
 import { waitForTicketCreateMutationCalls } from '#shared/entities/ticket/graphql/mutations/create.mocks.ts'
 import {
   EnumObjectManagerObjects,
@@ -157,9 +158,9 @@ describe('ticket create view', () => {
       await view.events.click(view.getByRole('option', { name: 'pending reminder' }))
 
       // Date selection Field on pending reminder
-      await view.events.click(view.getByLabelText('Pending till'))
+      await view.events.click(view.getByRole('button', { name: 'Choose date' }))
 
-      const dateCells: Element[] = await view.findAllByRole('gridcell', { name: /29/ })
+      const dateCells: Element[] = await view.findAllByRole('button', { name: /29th/ })
 
       await view.events.click(<Element>dateCells.at(-1))
 
@@ -183,7 +184,7 @@ describe('ticket create view', () => {
           },
           groupId: 'gid://zammad/Group/1',
           objectAttributeValues: [],
-          pendingTime: '2024-11-29T00:00:00Z',
+          pendingTime: '2024-11-29T08:00:00Z',
           priorityId: 'gid://zammad/Ticket::Priority/2',
           stateId: 'gid://zammad/Ticket::State/3',
           title: 'Test Ticket',
@@ -299,7 +300,14 @@ describe('ticket create view', () => {
         expect(view.queryByRole('button', { name: 'Cancel & go back' })).not.toBeInTheDocument(),
       )
 
-      await view.events.click(await view.findByRole('button', { name: 'Discard changes' }))
+      // The trigger only opens the dialog, so it is not red; the confirm button inside is.
+      const discardButton = await view.findByRole('button', { name: 'Discard changes' })
+
+      expect(discardButton).toHaveClass('bg-green-200')
+      expect(discardButton).not.toHaveClass('bg-pink-100')
+      expect(getByIconName(discardButton, 'trash3')).toBeInTheDocument()
+
+      await view.events.click(discardButton)
 
       const dialog = await view.findByRole('dialog', {
         name: 'Unsaved changes',
@@ -313,7 +321,11 @@ describe('ticket create view', () => {
         await dialogView.findByText('Are you sure? You have unsaved changes that will get lost.'),
       )
 
-      await view.events.click(dialogView.getByRole('button', { name: 'Discard changes' }))
+      const confirmButton = dialogView.getByRole('button', { name: 'Discard changes' })
+
+      expect(confirmButton).toHaveClass('bg-pink-100')
+
+      await view.events.click(confirmButton)
 
       // should not be in the document anymore
       await waitFor(() => expect(view.queryByLabelText('Title')).not.toBeInTheDocument())

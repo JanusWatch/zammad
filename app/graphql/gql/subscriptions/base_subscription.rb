@@ -13,6 +13,12 @@ module Gql::Subscriptions
     description 'Base class for all subscriptions'
 
     # Add DSL to specify if a subscription is broadcastable.
+    #
+    # A broadcastable update is computed once, with the context of the first subscriber, and that
+    #   result is delivered to every subscriber. Its payload must therefore not depend on the user,
+    #   including the authentication state: a connection that a maintenance mode no longer
+    #   authorizes is served as logged out (see Gql::Context::CurrentUserAware), and if that is the
+    #   first subscriber, an update requiring authentication would reach the others as an error.
     def self.broadcastable(broadcastable = nil)
       if broadcastable.nil?
         @broadcastable
@@ -42,7 +48,8 @@ module Gql::Subscriptions
         graphql_field_name,
         arguments,
         object,
-        scope: scope
+        scope:   scope,
+        context: { skipped_browser_tab_id: Gql::SubscriptionOrigin.skipped_browser_tab_id(graphql_field_name) }.compact
       )
     end
 

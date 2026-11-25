@@ -9,7 +9,8 @@ RSpec.describe 'Ticket zoom > Link knowledge base answer', type: :system do
     include_context 'basic Knowledge Base'
 
     let(:ticket)      { create(:ticket, group: Group.find_by(name: 'Users')) }
-    let(:translation) { published_answer.translations.first }
+    let(:answer)      { create(:knowledge_base_answer, :published, category:, translation_attributes: { title: 'Warranty & Returns' }) }
+    let(:translation) { answer.translations.first }
 
     def authenticate
       translation
@@ -34,7 +35,7 @@ RSpec.describe 'Ticket zoom > Link knowledge base answer', type: :system do
 
             find('.js-input').send_keys translation.title
 
-            find(%(li[data-value="#{translation.id}"])).click
+            find(%(li[data-value="#{translation.id}"]), text: 'Warranty & Returns').click
 
             # Scoped to '.link_kb_answers' already, so 'ol' alone is enough - re-adding the ancestor
             # class here made this a self-referential descendant selector, which some CSS engines
@@ -113,6 +114,59 @@ RSpec.describe 'Ticket zoom > Link knowledge base answer', type: :system do
           .to have_css('.js-kb-suggestion-add')
           .and(have_text(translation.title))
           .and(have_no_css('.js-delete'))
+      end
+    end
+  end
+
+  describe 'Insert action', authenticated_as: :authenticate do
+    let(:ticket)                { create(:ticket, group: Group.find_by(name: 'Users')) }
+    let(:linked_translation)    { published_answer.translations.first }
+    let(:suggested_translation) { internal_answer.translations.first }
+
+    def authenticate
+      setup_ai_provider('zammad_ai')
+      Setting.set('vectordb_enabled', true)
+
+      allow(Service::AI::VectorDB::Available).to receive(:execute).and_return(true)
+      # The knowledge base answer factory triggers the vector index callback, which must not reach
+      # Elasticsearch in this spec.
+      allow(Service::AI::VectorDB::Available).to receive(:execute).with(ping: false).and_return(false)
+      allow(Service::Ticket::AI::RelatedKnowledgeBaseAnswers)
+        .to receive(:execute).and_return({ answers: [{ translation: suggested_translation, score: 0.9 }], pending: false })
+
+      create(:link, from: ticket, to: linked_translation)
+
+      true
+    end
+
+    before do
+      visit "#ticket/zoom/#{ticket.id}"
+
+      within :active_content, '.link_kb_answers' do
+        find('.js-kb-suggestion-add')
+        find('li', text: linked_translation.title)
+      end
+    end
+
+    it 'offers the action on the linked and the suggested answer only while the article is open' do
+      within :active_content do
+        expect(page).to have_no_css('.link_kb_answers .js-kb-insert')
+
+        find('.js-writeArea').click(x: 5, y: 5)
+
+        within '.link_kb_answers' do
+          expect(page)
+            .to have_css(".js-kb-insert[data-object-id='#{linked_translation.id}']")
+            .and(have_css(".js-kb-insert[data-object-id='#{suggested_translation.id}']"))
+        end
+      end
+
+      find(:richtext).send_keys(' ')
+      find('input#global-search').click
+
+      within :active_content do
+        expect(page).to have_no_css('form.article-add.is-open')
+        expect(page).to have_no_css('.link_kb_answers .js-kb-insert')
       end
     end
   end
@@ -488,6 +542,7 @@ RSpec.describe 'Ticket zoom > Link knowledge base answer', type: :system do
 
       it 'still checks for duplicate answers in the generation modal' do
         within :active_content, '.link_kb_answers' do
+          expect(page).to have_css('.js-kb-ai-generate')
           expect(page).to have_no_text('Suggested knowledge')
           expect(Service::Ticket::AI::RelatedKnowledgeBaseAnswers).not_to have_received(:execute)
 
@@ -674,6 +729,60 @@ RSpec.describe 'Ticket zoom > Link knowledge base answer', type: :system do
             .and(have_css('.kb-answer-external-icon'))
         end
       end
+    end
+  end
+
+  describe 'Answer popover', authenticated_as: :authenticate do
+    let(:ticket)      { create(:ticket, group: Group.find_by(name: 'Users')) }
+    let(:translation) { published_answer.translations.first }
+
+    def authenticate
+      create(:link, from: ticket, to: translation)
+      true
+    end
+
+    before do
+      visit "#ticket/zoom/#{ticket.id}"
+
+      within :active_content, '.link_kb_answers' do
+        # A hash route change keeps the pointer where the previous example left it. Sitting still on
+        #   the freshly rendered answer is no mouseenter, so step away before hovering it.
+        find('label', text: %r{related knowledge}i).hover
+        find('.kb-answer-popover', text: translation.title).hover
+      end
+    end
+
+    it 'closes the popover when the answer is unlinked' do
+      # The popover is attached to the body, outside of the widget.
+      expect(page).to have_css('.popover', text: translation.title)
+
+      within :active_content, '.link_kb_answers' do
+        find('.js-delete').click
+
+        expect(page).to have_no_text(translation.title)
+      end
+
+      expect(page).to have_no_css('.popover', text: translation.title)
+    end
+
+    # Any pushed ticket change re-renders the list, so the answer can also go while its popover is
+    #   open and the pointer still rests on it.
+    it 'closes the popover when the answer is unlinked elsewhere' do
+      expect(page).to have_css('.popover', text: translation.title)
+
+      Link.remove(
+        link_type:                'normal',
+        link_object_source:       'KnowledgeBase::Answer::Translation',
+        link_object_source_value: translation.id,
+        link_object_target:       'Ticket',
+        link_object_target_value: ticket.id,
+      )
+
+      within :active_content, '.link_kb_answers' do
+        expect(page).to have_no_text(translation.title)
+      end
+
+      expect(page).to have_no_css('.popover', text: translation.title)
     end
   end
 end

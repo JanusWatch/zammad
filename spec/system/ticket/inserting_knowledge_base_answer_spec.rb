@@ -36,6 +36,17 @@ RSpec.describe 'inserting Knowledge Base answer', searchindex: true, type: :syst
     end
   end
 
+  context 'when answer title contains an ampersand' do
+    let(:answer) { create(:knowledge_base_answer, :published, category:, translation_attributes: { title: 'Warranty & Returns' }) }
+
+    it 'lists the title as text' do
+      open_page
+      search_kb_answer(target_translation, field)
+
+      expect(find(:text_module, target_translation.id)).to have_text('Warranty & Returns')
+    end
+  end
+
   context 'when answer with image' do
     let(:answer) { create(:knowledge_base_answer, :with_image, published_at: 1.week.ago) }
 
@@ -58,6 +69,267 @@ RSpec.describe 'inserting Knowledge Base answer', searchindex: true, type: :syst
     end
   end
 
+  context 'when answer with video' do
+    let(:answer) { create(:knowledge_base_answer, :with_video, published_at: 1.week.ago) }
+
+    it 'inserts a link to the video instead of the video marker' do
+      open_page
+      insert_kb_answer(target_translation, field)
+
+      expect(field).to have_link('https://www.youtube.com/watch?v=vTTzwJsHpU8', href: 'https://www.youtube.com/watch?v=vTTzwJsHpU8')
+      expect(field).to have_no_text('widget: video')
+    end
+  end
+
+  context 'when creating a ticket' do
+    let(:answer) { published_answer }
+
+    it 'shows only the hint before a search term is typed' do
+      open_page
+      field.send_keys('??')
+
+      expect(page).to have_css('.shortcut > ul > li', count: 1, text: 'Start typing to search in Knowledge Base…')
+    end
+  end
+
+  context 'when replying to a ticket with a linked and a suggested answer', authenticated_as: :authenticate do
+    let(:answer)                { published_answer }
+    let(:ticket)                { create(:ticket, group: Group.find_by(name: 'Users')) }
+    let(:suggested_translation) { internal_answer.translations.first }
+    let(:suggestions_enabled)   { true }
+    let(:found_suggestions)     { { answers: [{ translation: suggested_translation, score: 0.9 }], pending: false } }
+    let(:suggestions)           { found_suggestions }
+    let(:category_title)        { category.translations.first.title }
+    let(:several_locales)       { false }
+
+    def authenticate
+      setup_ai_provider('zammad_ai')
+      Setting.set('vectordb_enabled', true)
+      Setting.set('ai_assistance_kb_answer_suggestions', suggestions_enabled)
+
+      allow(Service::AI::VectorDB::Available).to receive(:execute).and_return(true)
+      # The knowledge base answer factory triggers the vector index callback, which must not reach
+      #   Elasticsearch in this spec.
+      allow(Service::AI::VectorDB::Available).to receive(:execute).with(ping: false).and_return(false)
+      allow(Service::Ticket::AI::RelatedKnowledgeBaseAnswers)
+        .to receive(:execute).and_return(suggestions)
+
+      create(:link, from: ticket, to: target_translation)
+      alternative_locale if several_locales
+
+      true
+    end
+
+    before do
+      visit "#ticket/zoom/#{ticket.id}"
+
+      # The `??` list reads the sidebar's answers, so wait until they are there.
+      within :active_content do
+        find('.link_kb_answers', text: target_translation.title)
+        find('.link_kb_answers', text: suggested_translation.title) if suggestions_enabled && !suggestions[:pending]
+      end
+    end
+
+    it 'lists the linked answer, then the suggested one, below the hint, each with its category' do
+      field.send_keys('??')
+
+      expect(page).to have_selector(:text_module, target_translation.id)
+      expect(all('.shortcut > ul > li').map(&:text)).to eq [
+        'Start typing to search in Knowledge Base…',
+        'Related knowledge',
+        "#{category_title}\n#{target_translation.title}",
+        'Suggested knowledge',
+        "#{category_title}\n#{suggested_translation.title}",
+      ]
+    end
+
+    it 'inserts a listed answer with its attachment' do
+      field.send_keys('??')
+      find(:text_module, target_translation.id).click
+
+      expect(field).to have_text(target_translation.content.body)
+
+      within(:active_content) do
+        expect(page).to have_css('.attachments .attachment--row', text: 'hello_world.txt')
+      end
+    end
+
+    it 'skips the section headers with the arrow keys' do
+      field.send_keys('??')
+      expect(page).to have_css('.shortcut li.is-active', text: target_translation.title)
+
+      field.send_keys(:down)
+      expect(page).to have_css('.shortcut li.is-active', text: suggested_translation.title)
+
+      field.send_keys(:enter)
+      expect(field).to have_text(suggested_translation.content.body)
+    end
+
+    it 'replaces the list with the search results when typing' do
+      field.send_keys('??')
+      expect(page).to have_css('.shortcut li.dropdown-header', text: 'Related knowledge')
+
+      target_translation.title.slice(0, 3).chars.each { |letter| field.send_keys(letter) }
+
+      expect(page).to have_css(".shortcut > ul > li.with-category[data-id='#{target_translation.id}']")
+      expect(page).to have_no_css('.shortcut li.dropdown-header', text: 'Related knowledge')
+    end
+
+    context 'when the knowledge base has several locales' do
+      let(:several_locales) { true }
+
+      it 'shows the locale next to the title, as the search results do' do
+        field.send_keys('??')
+
+        locale = target_translation.kb_locale.system_locale.locale.upcase
+
+        expect(page).to have_selector(:text_module, target_translation.id, text: "#{target_translation.title} (#{locale})")
+      end
+    end
+
+    context 'when suggestions are switched off' do
+      let(:suggestions_enabled) { false }
+
+      it 'lists the linked answer only' do
+        field.send_keys('??')
+
+        expect(page).to have_selector(:text_module, target_translation.id)
+        expect(page).to have_no_css('.shortcut li', text: 'Suggested knowledge')
+        expect(page).to have_no_selector(:text_module, suggested_translation.id)
+      end
+    end
+
+    context 'when the suggestions are still being searched' do
+      let(:suggestions) { { answers: [], pending: true } }
+
+      it 'lists the linked answer only, and adds the suggestions to the open list once they are found' do
+        field.send_keys('??')
+
+        expect(page).to have_selector(:text_module, target_translation.id)
+        expect(page).to have_no_css('.shortcut li', text: 'Suggested knowledge')
+
+        allow(Service::Ticket::AI::RelatedKnowledgeBaseAnswers).to receive(:execute).and_return(found_suggestions)
+        page.execute_script("App.Event.trigger('ticket::related_knowledge_base_answers::ping', { ticket_id: #{ticket.id} })")
+
+        expect(page).to have_selector(:text_module, suggested_translation.id)
+        expect(page).to have_css('.shortcut li.is-active', text: target_translation.title)
+      end
+    end
+
+    context 'when inserting from the related knowledge widget' do
+      def open_article
+        within(:active_content) { find('.js-writeArea').click(x: 5, y: 5) }
+      end
+
+      def insert_from_widget(translation)
+        within :active_content, '.link_kb_answers' do
+          find(".js-kb-insert[data-object-id='#{translation.id}']").click
+        end
+      end
+
+      it 'inserts the answer with its attachment at the caret, leaving the text written intact' do
+        field.send_keys('Before', :enter, 'After', :up, :end)
+        insert_from_widget(target_translation)
+
+        expect(field).to have_text(%r{\ABefore\s*#{Regexp.escape(target_translation.content.body)}\s*After\z})
+
+        within(:active_content) do
+          expect(page).to have_css('.attachments .attachment--row', text: 'hello_world.txt')
+        end
+      end
+
+      it 'replaces the selected text with the answer' do
+        field.send_keys('Before Selected After', *Array.new(6, :left))
+        # Firefox clicks the element's centre before sending a key chord to an unfocused element, and the
+        #   collapsed article's attachment area covers it.
+        field.send_keys(*Array.new(8, %i[shift left]))
+        insert_from_widget(target_translation)
+
+        expect(field).to have_text(%r{\ABefore\s*#{Regexp.escape(target_translation.content.body)}\s*After\z})
+      end
+
+      it 'inserts a suggested answer' do
+        open_article
+        insert_from_widget(suggested_translation)
+
+        expect(field).to have_text(suggested_translation.content.body)
+      end
+
+      it 'inserts several answers one after another' do
+        field.send_keys('Before')
+        insert_from_widget(target_translation)
+        expect(field).to have_text(target_translation.content.body)
+
+        insert_from_widget(suggested_translation)
+
+        expect(field).to have_text(%r{\ABefore\s*#{Regexp.escape(target_translation.content.body)}\s*#{Regexp.escape(suggested_translation.content.body)}\z})
+      end
+
+      it 'keeps an empty article open' do
+        open_article
+        insert_from_widget(target_translation)
+
+        expect(field).to have_text(target_translation.content.body)
+        expect(page).to have_css('.article-add.is-open')
+      end
+
+      it 'reports a failed request and inserts nothing' do
+        page.execute_script("App.KnowledgeBaseAnswerTranslation.prototype.contentUrl = function() { return App.Config.get('api_path') + '/knowledge_bases/0/answers/0' }")
+
+        field.send_keys('Before')
+        insert_from_widget(target_translation)
+
+        expect(page).to have_text('The knowledge base answer could not be inserted.')
+        expect(field).to have_text(%r{\ABefore\z})
+      end
+
+      context 'with a full quote reply' do
+        let(:article) { create(:ticket_article, :inbound_email, ticket:, body: 'Customer question.') }
+
+        def authenticate
+          Setting.set('ui_ticket_zoom_article_email_full_quote', true)
+          article
+
+          super
+        end
+
+        it 'inserts the answer at the start, above the quote, when no caret was placed' do
+          within(:active_content) { click '.js-ArticleAction[data-type=emailReply]' }
+          expect(field).to have_css('blockquote', text: 'Customer question.')
+
+          insert_from_widget(target_translation)
+
+          expect(field).to have_text(%r{\A#{Regexp.escape(target_translation.content.body)}.*Customer question\.}m)
+        end
+      end
+
+      context 'when the answer has an image' do
+        let(:answer) { create(:knowledge_base_answer, :with_image, published_at: 1.week.ago) }
+
+        it 'inserts the image' do
+          open_article
+          insert_from_widget(target_translation)
+
+          within(:active_content) do
+            within(:richtext) do
+              wait.until { first('img').evaluate_script('this.naturalWidth').positive? }
+            end
+          end
+        end
+      end
+    end
+
+    it 'drops the suggestions from the open list when they fail' do
+      field.send_keys('??')
+      expect(page).to have_selector(:text_module, suggested_translation.id)
+
+      page.execute_script("App.Event.trigger('ticket::related_knowledge_base_answers::ping', { ticket_id: #{ticket.id}, error: true })")
+
+      expect(page).to have_no_selector(:text_module, suggested_translation.id)
+      expect(page).to have_selector(:text_module, target_translation.id)
+    end
+  end
+
   private
 
   def open_page
@@ -65,9 +337,13 @@ RSpec.describe 'inserting Knowledge Base answer', searchindex: true, type: :syst
   end
 
   def insert_kb_answer(translation, target_field)
-    target_field.send_keys('??')
-    translation.title.slice(0, 3).chars.each { |letter| target_field.send_keys(letter) }
+    search_kb_answer(translation, target_field)
 
     find(:text_module, translation.id).click
+  end
+
+  def search_kb_answer(translation, target_field)
+    target_field.send_keys('??')
+    translation.title.slice(0, 3).chars.each { |letter| target_field.send_keys(letter) }
   end
 end

@@ -1,15 +1,8 @@
 <!-- Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/ -->
 
 <script setup lang="ts">
-import { useLazyQuery } from '@vue/apollo-composable'
-import {
-  refDebounced,
-  useDebounceFn,
-  useElementBounding,
-  useElementVisibility,
-  useWindowSize,
-  watchOnce,
-} from '@vueuse/core'
+import { useLazyQuery } from '@vue/apollo-composable/compat'
+import { refDebounced, useDebounceFn, watchOnce } from '@vueuse/core'
 import gql from 'graphql-tag'
 import { cloneDeep, escapeRegExp, isEqual, uniqBy } from 'lodash-es'
 import { useTemplateRef } from 'vue'
@@ -23,15 +16,16 @@ import type {
 } from '#shared/components/Form/fields/FieldAutocomplete/types.ts'
 import type { FormFieldContext } from '#shared/components/Form/types/field.ts'
 import useSelectOptions from '#shared/composables/useSelectOptions.ts'
-import { useTrapTab } from '#shared/composables/useTrapTab.ts'
 import { useFormBlock } from '#shared/form/useFormBlock.ts'
 import { i18n } from '#shared/i18n.ts'
 import { QueryHandler } from '#shared/server/apollo/handler/index.ts'
 import type { ObjectLike } from '#shared/types/utils.ts'
 import stopEvent from '#shared/utils/events.ts'
+import { deaccent } from '#shared/utils/labelMatching.ts'
 
 import CommonInputSearch from '#desktop/components/CommonInputSearch/CommonInputSearch.vue'
 import CommonSelect from '#desktop/components/CommonSelect/CommonSelect.vue'
+import { useSelectDropdown } from '#desktop/form/composables/useSelectDropdown/useSelectDropdown.ts'
 
 import FieldAutoCompleteOptionIcon from './FieldAutoCompleteOptionIcon.vue'
 
@@ -146,7 +140,18 @@ const select = useTemplateRef('select')
 
 const filter = ref('')
 
-const { activateTabTrap, deactivateTabTrap } = useTrapTab(input, true)
+const {
+  deactivateTabTrap,
+  isBelowHalfScreen,
+  isInputVisible,
+  openSelectDropdown,
+  openOrMoveFocusToDropdown,
+} = useSelectDropdown(props.context, {
+  input,
+  output: outputElement,
+  filterInput,
+  dropdown: select,
+})
 
 const clearFilter = () => {
   filter.value = ''
@@ -194,7 +199,7 @@ const autocompleteQueryHandler = new QueryHandler(
     }),
     () => ({
       enabled: !!(debouncedFilter.value || defaultFilter.value),
-      cachePolicy: 'no-cache', // Do not use cache, because we want always up-to-date results.
+      fetchPolicy: 'cache-and-network', // Show cached results immediately, then refresh from the server.
     }),
   ),
 )
@@ -326,8 +331,6 @@ const onKeydownFilterInput = (event: KeyboardEvent) => {
   })
 }
 
-const deaccent = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-
 const availableOptionsWithMatches = computed(() => {
   // Trim and de-accent search keywords and compile them as a case-insensitive regex.
   //   Make sure to escape special regex characters!
@@ -374,14 +377,6 @@ const suggestedOptionLabel = computed(() => {
   return exactMatches[0].label || exactMatches[0].value.toString()
 })
 
-const inputElementBounds = useElementBounding(input)
-const isInputVisible = !!VITE_TEST_MODE || useElementVisibility(input)
-const windowSize = useWindowSize()
-
-const isBelowHalfScreen = computed(() => {
-  return inputElementBounds.y.value > windowSize.height.value / 2
-})
-
 const onCloseDropdown = () => {
   clearChildOptions()
   clearFilter()
@@ -396,34 +391,7 @@ const foldDropdown = (event?: MouseEvent) => {
   }
 }
 
-const openSelectDropdown = () => {
-  if (props.context.disabled) return
-  if (!input.value) return
-
-  select.value?.openDropdown(inputElementBounds, windowSize.height)
-
-  requestAnimationFrame(() => {
-    activateTabTrap()
-    if (props.context.noFiltering) outputElement.value?.focus()
-    else filterInput.value?.focus()
-  })
-}
-
 defineExpose({ openSelectDropdown })
-
-const openOrMoveFocusToDropdown = (lastOption = false) => {
-  if (!select.value?.isOpen) {
-    return openSelectDropdown()
-  }
-
-  deactivateTabTrap()
-
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      select.value?.moveFocusToDropdown(lastOption)
-    })
-  })
-}
 
 const onFocusFilterInput = () => {
   filterInput.value?.focus()
@@ -542,7 +510,7 @@ useFormBlock(
         aria-haspopup="menu"
         :aria-expanded="expanded"
         :name="context.node.name"
-        class="flex grow items-center gap-2.5 px-2.5 py-2 text-black focus:outline-hidden dark:text-white formkit-disabled:pointer-events-none"
+        class="flex grow items-center gap-2.5 px-2.5 py-2 text-contrast focus:outline-hidden formkit-disabled:pointer-events-none"
         :aria-labelledby="`label-${context.id}`"
         :aria-disabled="context.disabled"
         :aria-describedby="context.describedBy"
@@ -575,12 +543,12 @@ useFormBlock(
             role="listitem"
           >
             <div
-              class="inline-flex items-center gap-1 rounded bg-white px-1.5 py-0.5 text-xs text-black dark:bg-gray-200 dark:text-white formkit-alternative-background:bg-neutral-100 dark:formkit-alternative-background:bg-gray-200"
+              class="inline-flex items-center gap-1 rounded-sm bg-white px-1.5 py-0.5 text-xs/snug text-contrast dark:bg-gray-200 formkit-alternative-background:bg-neutral-100 dark:formkit-alternative-background:bg-gray-200"
             >
               <CommonIcon
                 v-if="getSelectedAutocompleteOptionIcon(selectedValue)"
                 :name="getSelectedAutocompleteOptionIcon(selectedValue)"
-                class="shrink-0 fill-gray-100 dark:fill-neutral-400"
+                class="shrink-0 fill-normal"
                 size="xs"
                 decorative
               />
@@ -657,7 +625,7 @@ useFormBlock(
               <CommonIcon
                 v-if="getSelectedAutocompleteOptionIcon(currentValue)"
                 :name="getSelectedAutocompleteOptionIcon(currentValue)"
-                class="shrink-0 fill-gray-100 dark:fill-neutral-400"
+                class="shrink-0 fill-normal"
                 size="tiny"
                 decorative
               />

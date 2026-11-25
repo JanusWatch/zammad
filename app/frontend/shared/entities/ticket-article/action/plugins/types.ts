@@ -74,8 +74,14 @@ export interface TicketArticleAction {
   view: TicketViewPolicyMap
   link?: string
   alwaysVisible?: boolean
+  separatorTop?: boolean // desktop popover menu only
 
-  perform?(ticket: TicketById, article: TicketArticle, options: TicketArticlePerformOptions): void
+  // A returned promise keeps the triggering control in a pending state until it settles.
+  perform?(
+    ticket: TicketById,
+    article: TicketArticle,
+    options: TicketArticlePerformOptions,
+  ): void | Promise<unknown>
 }
 
 export interface TicketArticleTypeReactiveFieldProps {

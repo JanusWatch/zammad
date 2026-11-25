@@ -148,6 +148,18 @@ RSpec.describe 'Ticket zoom > Time Accounting', authenticated_as: :authenticate,
         end
       end
 
+      # Deactivating the otherwise active type leaves the instance without any active one.
+      context 'without any active type' do
+        let(:active_type) { create(:ticket_time_accounting_type, active: false) }
+
+        it 'does not show types dropdown', :aggregate_failures do
+          in_modal do
+            expect(page).to have_field 'time_unit'
+            expect(page).to have_no_text %r{Activity Type}i
+          end
+        end
+      end
+
       context 'when more than three types are used', authenticated_as: :authenticate do
         let(:create_new_article)          { false }
         let(:types)                       { create_list(:ticket_time_accounting_type, 4) }
@@ -239,6 +251,7 @@ RSpec.describe 'Ticket zoom > Time Accounting', authenticated_as: :authenticate,
 
       it 'does not show the None category if there are no accountings on categories' do
         within '.accounted-time-value-container' do
+          expect(page).to have_text('25')
           expect(page).to have_no_text('None')
         end
       end
@@ -257,6 +270,7 @@ RSpec.describe 'Ticket zoom > Time Accounting', authenticated_as: :authenticate,
 
       it 'does not show the Type category if types are disabled' do
         within '.accounted-time-value-container' do
+          expect(page).to have_text('25')
           expect(page).to have_no_text(type.name)
         end
       end
@@ -280,6 +294,14 @@ RSpec.describe 'Ticket zoom > Time Accounting', authenticated_as: :authenticate,
       true
     end
 
+    # Changes made in the backend reach the open ticket only through a push to a
+    #   logged-in websocket session.
+    def ensure_ticket_push_delivery
+      ensure_websocket
+      wait_for_authenticated_session
+      ensure_websocket_push_delivery
+    end
+
     # The accounted time shares one row with the channel in a second column.
     it 'shows the accounted time of the article next to the channel', :aggregate_failures do
       within :active_ticket_article, accounted_article do
@@ -294,6 +316,7 @@ RSpec.describe 'Ticket zoom > Time Accounting', authenticated_as: :authenticate,
       within :active_ticket_article, unaccounted_article do
         find('.article-content .textBubble').click
 
+        expect(page).to have_css('.article-meta-row', text: %r{From}i)
         expect(page).to have_no_css('.article-meta-row--columns')
         expect(page).to have_no_css('.article-meta-row', text: %r{Accounted\ Time}i)
       end
@@ -304,6 +327,7 @@ RSpec.describe 'Ticket zoom > Time Accounting', authenticated_as: :authenticate,
         expect(page).to have_no_css('.article-meta-row', text: %r{Accounted\ Time}i, visible: :all)
       end
 
+      ensure_ticket_push_delivery
       create(:ticket_time_accounting, ticket: ticket, ticket_article: unaccounted_article, time_unit: 7)
       ticket.update!(title: "#{ticket.title} - updated")
 
@@ -316,6 +340,7 @@ RSpec.describe 'Ticket zoom > Time Accounting', authenticated_as: :authenticate,
       within :active_ticket_article, accounted_article do
         find('.article-content .textBubble').click
 
+        expect(page).to have_css('.article-meta-row', text: %r{From}i)
         expect(page).to have_no_css('.article-meta-row', text: %r{for\ activity\ type}i)
       end
     end
@@ -336,6 +361,7 @@ RSpec.describe 'Ticket zoom > Time Accounting', authenticated_as: :authenticate,
         within :active_ticket_article, unaccounted_article do
           find('.article-content .textBubble').click
 
+          expect(page).to have_css('.article-meta-row', text: %r{From}i)
           expect(page).to have_no_css('.article-meta-row', text: %r{for\ activity\ type}i)
         end
       end
@@ -345,6 +371,7 @@ RSpec.describe 'Ticket zoom > Time Accounting', authenticated_as: :authenticate,
           expect(page).to have_no_css('.article-meta-row', text: %r{for\ activity\ type}i, visible: :all)
         end
 
+        ensure_ticket_push_delivery
         create(:ticket_time_accounting, ticket: ticket, ticket_article: unaccounted_article, time_unit: 7, type: inactive_type)
         ticket.update!(title: "#{ticket.title} - updated")
 
@@ -383,6 +410,7 @@ RSpec.describe 'Ticket zoom > Time Accounting', authenticated_as: :authenticate,
         within :active_ticket_article, accounted_article do
           find('.article-content .textBubble').click
 
+          expect(page).to have_css('.article-meta-row', text: %r{From}i)
           expect(page).to have_no_css('.article-meta-row--columns')
           expect(page).to have_no_css('.article-meta-row', text: %r{Accounted\ Time}i)
           expect(page).to have_no_css('.article-meta-row', text: %r{for\ activity\ type}i)

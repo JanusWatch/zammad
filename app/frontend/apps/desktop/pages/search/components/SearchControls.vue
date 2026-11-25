@@ -9,7 +9,7 @@ import { onBeforeRouteUpdate } from 'vue-router'
 import CommonBadge from '#shared/components/CommonBadge/CommonBadge.vue'
 import { useConfirmation } from '#shared/composables/useConfirmation.ts'
 import { useRecentSearches } from '#shared/composables/useRecentSearches.ts'
-import type { FilterAttribute } from '#shared/entities/object-attributes/types/store.ts'
+import type { FilterAttribute } from '#shared/entities/core/attributes/types/store.ts'
 import { useApplicationStore } from '#shared/stores/application.ts'
 
 import CommonButton from '#desktop/components/CommonButton/CommonButton.vue'
@@ -192,7 +192,7 @@ dark:hover:outline-blue-900 has-[input:focus]:outline-1 has-[input:focus]:outlin
       <template #prefix>
         <CommonBadge
           v-if="filterCount > 0"
-          class="flex gap-1.5 rounded-sm bg-white px-1.5! py-0.5! text-black dark:bg-gray-200 dark:text-white"
+          class="flex gap-1.5 rounded-sm bg-white px-1.5! py-0.5! text-contrast dark:bg-gray-200"
           variant="custom"
         >
           <CommonButton
@@ -205,7 +205,7 @@ dark:hover:outline-blue-900 has-[input:focus]:outline-1 has-[input:focus]:outlin
           </CommonButton>
           <CommonButton
             v-tooltip="$t('Clear all filters')"
-            class="p-0! text-stone-200 hover:text-black hover:outline-0! dark:text-neutral-500 dark:hover:text-white"
+            class="p-0! text-muted! hover:text-contrast! hover:outline-0!"
             variant="neutral"
             icon="x-lg"
             size="small"
@@ -229,7 +229,7 @@ dark:hover:outline-blue-900 has-[input:focus]:outline-1 has-[input:focus]:outlin
       <CommonButton
         v-if="selectedEntityHasFiltersEnabled"
         :id="advancedFiltersButtonId"
-        class="relative z-20 h-auto! w-full! bg-blue-200! -outline-offset-1! transition-[border-radius]! before:absolute before:right-0 before:bottom-0 before:left-0 before:hidden before:h-3 before:w-full before:translate-y-full before:bg-blue-200 before:opacity-0 before:transition-opacity before:duration-0 before:ease-in-out active:scale-none! @lg:w-auto! @lg:before:block dark:bg-gray-700! dark:before:bg-gray-700"
+        class="relative z-20 h-auto! w-full! bg-blue-200! -outline-offset-1! transition-[border-radius]! before:absolute before:inset-x-0 before:bottom-0 before:hidden before:h-3 before:w-full before:translate-y-full before:bg-blue-200 before:opacity-0 before:transition-opacity before:duration-0 before:ease-in-out active:scale-none! @lg:w-auto! @lg:before:block dark:bg-gray-700! dark:before:bg-gray-700"
         :class="{
           'rounded-b-none! before:h-3 before:opacity-100 @lg:rounded-b-none!': isFilterPanelsOpen,
           'before:delay-200 before:duration-25': !isFilterPanelsOpen,

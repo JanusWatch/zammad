@@ -3,14 +3,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { useArticleTranslationStore } from '#shared/entities/ticket-article/stores/articleTranslation.ts'
+
 import CommonBreadcrumb from '#desktop/components/CommonBreadcrumb/CommonBreadcrumb.vue'
 import CommonButton from '#desktop/components/CommonButton/CommonButton.vue'
 import CommonInlineEdit from '#desktop/components/CommonInlineEdit/CommonInlineEdit.vue'
 import OrganizationPopoverWithTrigger from '#desktop/components/Organization/OrganizationPopoverWithTrigger.vue'
 import UserPopoverWithTrigger from '#desktop/components/User/UserPopoverWithTrigger.vue'
+import ArticleTranslationTargetMenu from '#desktop/pages/ticket/components/TicketDetailView/TicketDetailTopBar/components/ArticleTranslationTargetMenu.vue'
 import HighlightMenu from '#desktop/pages/ticket/components/TicketDetailView/TicketDetailTopBar/components/HighlightMenu.vue'
 import TicketInformationBadgeList from '#desktop/pages/ticket/components/TicketDetailView/TicketDetailTopBar/components/TicketInformationFull/TicketInformationBadgeList.vue'
 
+import TopBarHeaderCustomerLine from './TopBarHeaderCustomerLine.vue'
 import { useTopBarHeader } from './useTopBarHeader.ts'
 
 const {
@@ -19,10 +23,13 @@ const {
   ticketNumberWithTicketHook,
   isTicketAgent,
   isTicketEditable,
+  isSystemCustomer,
   copyTicketNumberToClipboard,
   isUpdatingTitle,
   updateTitle,
 } = useTopBarHeader()
+
+const translationStore = useArticleTranslationStore()
 
 const items = computed(() => [
   {
@@ -62,12 +69,12 @@ const items = computed(() => [
     </CommonBreadcrumb>
 
     <div
-      v-if="isTicketAgent && isTicketEditable"
-      class="justify-self-end print:hidden"
+      v-if="isTicketAgent && (isTicketEditable || translationStore.isAvailable)"
+      class="flex gap-2 justify-self-end print:hidden"
       :style="{ gridTemplate: 'actions' }"
     >
-      <!-- Div because we add soon more actions here  -->
-      <HighlightMenu />
+      <ArticleTranslationTargetMenu v-if="translationStore.isAvailable" />
+      <HighlightMenu v-if="isTicketEditable" />
     </div>
 
     <!-- 896px is the max width of the ArticleList -> max-w-64 and  64px is padding-->
@@ -88,6 +95,8 @@ const items = computed(() => [
           :avatar-config="{
             responsive: true,
             size: 'normal',
+            noIndicator: isSystemCustomer,
+            noMuted: isSystemCustomer,
           }"
           :popover-config="{
             placement: 'arrowStart',
@@ -110,18 +119,7 @@ const items = computed(() => [
 
       <div class="w-full grow justify-self-center">
         <div class="mb-3.5 flex flex-col justify-center">
-          <div class="mb-1 flex items-center gap-1">
-            <CommonLabel tag="p" class="line-clamp-1! max-w-1/2 shrink break-all">
-              {{ ticket.customer.fullname }}
-            </CommonLabel>
-            <span v-if="ticket.organization?.name" aria-hidden="true"> &middot; </span>
-            <CommonLabel
-              v-if="ticket.organization?.name"
-              class="line-clamp-1! flex-1 grow break-all"
-            >
-              {{ ticket.organization?.name }}
-            </CommonLabel>
-          </div>
+          <TopBarHeaderCustomerLine :ticket="ticket" />
 
           <CommonInlineEdit
             v-model:editing="isUpdatingTitle"

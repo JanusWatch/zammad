@@ -10,7 +10,7 @@ import { type ExtendedMountingOptions, renderComponent } from '#tests/support/co
 import { mockRouterHooks } from '#tests/support/mock-vue-router.ts'
 import { waitForNextTick } from '#tests/support/utils.ts'
 
-import { mockObjectManagerFrontendAttributesQuery } from '#shared/entities/object-attributes/graphql/queries/objectManagerFrontendAttributes.mocks.ts'
+import { mockObjectManagerFrontendAttributesQuery } from '#shared/entities/core/attributes/graphql/queries/objectManagerFrontendAttributes.mocks.ts'
 import { createDummyTicket } from '#shared/entities/ticket-article/__tests__/mocks/ticket.ts'
 import { EnumObjectManagerObjects, EnumOrderDirection } from '#shared/graphql/types.ts'
 import { convertToGraphQLId, getIdFromGraphQLId } from '#shared/graphql/utils.ts'
@@ -87,7 +87,7 @@ const renderTable = async (
     store: true,
     ...options,
     props: {
-      object: EnumObjectManagerObjects.Ticket,
+      entity: EnumObjectManagerObjects.Ticket,
       ...props,
     },
   })
@@ -324,7 +324,7 @@ describe('CommonAdvancedTable', () => {
     expect(row).toHaveClass('bg-blue-800!')
 
     expect(within(row).getAllByRole('cell')[1].children[0].children[0]).toHaveClass(
-      'text-black! dark:text-white!',
+      'text-contrast!',
     )
   })
 
@@ -761,6 +761,23 @@ describe('CommonAdvancedTable', () => {
     await wrapper.events.click(sortButton)
 
     expect(wrapper.emitted('sort').at(-1)).toEqual(['title', 'ASCENDING'])
+  })
+
+  it('does not offer sorting for relation columns with disabled relation sorting', async () => {
+    const wrapper = await renderTable({
+      headers: ['title', 'owner'],
+      disableRelationSorting: true,
+      items: tableItems,
+      totalItemsCount: 1,
+      caption: 'Table caption',
+    })
+
+    expect(
+      await wrapper.findByRole('button', { name: 'Sort by Title ascending' }),
+    ).toBeInTheDocument()
+
+    expect(wrapper.getByRole('columnheader', { name: 'Owner' })).toBeInTheDocument()
+    expect(wrapper.queryByRole('button', { name: 'Sort by Owner ascending' })).toBeNull()
   })
 
   it('supports disabling checkbox for specific rows', async () => {

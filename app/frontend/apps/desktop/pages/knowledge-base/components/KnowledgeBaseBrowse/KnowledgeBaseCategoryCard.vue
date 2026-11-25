@@ -120,7 +120,6 @@ const actions = computed<MenuItem[]>(() => {
       key: 'delete-category',
       label: __('Delete category'),
       icon: 'trash3',
-      variant: 'danger',
       separatorTop: true,
       show: () => props.policy.destroy,
       onClick: () =>
@@ -154,7 +153,7 @@ const actions = computed<MenuItem[]>(() => {
         name="grip-vertical"
         size="small"
         decorative
-        class="absolute inset-s-3 top-3 fill-stone-200 dark:fill-neutral-500"
+        class="absolute inset-s-3 top-3 fill-muted"
       />
       <!-- Steps aside for the drag handle, which takes the corner it normally sits in. -->
       <CommonBadge
@@ -177,11 +176,7 @@ const actions = computed<MenuItem[]>(() => {
         />
 
         <div class="flex min-h-11 w-full items-center justify-center">
-          <CommonLabel
-            tag="h3"
-            size="medium"
-            class="line-clamp-2! text-center text-black! dark:text-white!"
-          >
+          <CommonLabel tag="h3" size="medium" class="line-clamp-2! text-center text-contrast!">
             {{ title }}
           </CommonLabel>
         </div>
@@ -193,15 +188,10 @@ const actions = computed<MenuItem[]>(() => {
            about where it belongs in the order. The row itself stays, so the tiles keep their
            height and the grid does not reflow when the bar is armed or dismissed. -->
       <div v-if="!isSorting" class="flex w-full items-center gap-3 pt-2.25">
-        <div class="flex items-center gap-1">
-          <CommonIcon
-            name="folder"
-            size="tiny"
-            decorative
-            class="text-stone-200 dark:text-neutral-500"
-          />
+        <!-- The icon and badge share one tooltip: hovering either explains what the count is. -->
+        <div v-tooltip="$t('Category count: %s', subcategoryCount)" class="flex items-center gap-1">
+          <CommonIcon name="folder" size="tiny" decorative class="text-muted" />
           <CommonBadge
-            v-tooltip="$t('Category count: %s', subcategoryCount)"
             class="cursor-pointer! px-1.5 py-0.5 text-center leading-snug font-bold"
             size="xs"
             rounded
@@ -209,15 +199,9 @@ const actions = computed<MenuItem[]>(() => {
             {{ subcategoryCount }}
           </CommonBadge>
         </div>
-        <div class="flex items-center gap-1">
-          <CommonIcon
-            name="file-richtext"
-            size="tiny"
-            decorative
-            class="text-stone-200 dark:text-neutral-500"
-          />
+        <div v-tooltip="$t('Answer count: %s', answerCount)" class="flex items-center gap-1">
+          <CommonIcon name="file-richtext" size="tiny" decorative class="text-muted" />
           <CommonBadge
-            v-tooltip="$t('Answer count: %s', answerCount)"
             class="cursor-pointer! px-1.5 py-0.5 text-center leading-snug font-bold"
             size="xs"
             rounded

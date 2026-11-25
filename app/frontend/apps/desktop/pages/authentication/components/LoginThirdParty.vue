@@ -1,6 +1,7 @@
 <!-- Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/ -->
 
 <script setup lang="ts">
+import { resumeThirdPartyLoginAutoRedirect } from '#shared/composables/authentication/useThirdPartyAuthenticationAutoRedirect.ts'
 import type { ThirdPartyAuthProvider } from '#shared/types/authentication.ts'
 
 import CommonThirdPartyAuthenticationButton from '#desktop/components/CommonThirdPartyAuthenticationButton/CommonThirdPartyAuthenticationButton.vue'
@@ -23,13 +24,14 @@ defineProps<Props>()
       <CommonThirdPartyAuthenticationButton
         v-for="provider of providers"
         :key="provider.name"
-        class="grow basis-[calc(50%-theme(spacing.2))]"
+        class="grow basis-[calc(50%-(--spacing(2)))]"
         :url="provider.url"
         :button-prefix-icon="provider.icon"
         button-size="large"
         button-block
         button-variant="primary"
         :button-label="provider.label"
+        @button-click="resumeThirdPartyLoginAutoRedirect"
       >
         {{ $t(provider.label) }}
       </CommonThirdPartyAuthenticationButton>

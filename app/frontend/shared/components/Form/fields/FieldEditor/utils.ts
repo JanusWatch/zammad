@@ -103,8 +103,11 @@ export const updateSelectedContent = (editor: Editor, content: string) => {
  */
 export const updatePosition = (editor: Editor, element: HTMLElement, anchor?: HTMLElement) => {
   const reference = anchor || {
+    // Measured asynchronously, by when the editor may be gone.
     getBoundingClientRect: () =>
-      posToDOMRect(editor.view, editor.state.selection.from, editor.state.selection.to),
+      editor.isDestroyed
+        ? new DOMRect()
+        : posToDOMRect(editor.view, editor.state.selection.from, editor.state.selection.to),
   }
 
   computePosition(reference, element, {
@@ -124,7 +127,7 @@ export const getActiveNodeOrMark = (editor: Editor) => {
   return domNode.nodeType === Node.TEXT_NODE ? domNode.parentElement : (domNode as HTMLElement)
 }
 
-export const setAutoUpdate = (editor: Editor, element: HTMLElement, anchor?: HTMLElement) => {
+const setAutoUpdate = (editor: Editor, element: HTMLElement, anchor?: HTMLElement) => {
   const anchorNode = anchor || getActiveNodeOrMark(editor)
 
   if (!anchorNode) {
@@ -135,9 +138,9 @@ export const setAutoUpdate = (editor: Editor, element: HTMLElement, anchor?: HTM
   return autoUpdate(anchorNode, element, () => updatePosition(editor, element, anchor))
 }
 
-export const autoUpdatePosition = (editor: Editor, element: HTMLElement, anchor?: HTMLElement) => {
+const autoUpdatePosition = (editor: Editor, element: HTMLElement, anchor?: HTMLElement) => {
   updatePosition(editor, element, anchor)
-  setAutoUpdate(editor, element, anchor)
+  return setAutoUpdate(editor, element, anchor)
 }
 
 const createHandleCloseOnClick = (editor: Editor, options?: SetFloatingPopoverOptions) => {
@@ -185,16 +188,39 @@ export const setFloatingPopover = <T extends object>(
 
   document.body.appendChild(virtualComponent.element)
 
-  autoUpdatePosition(editor, virtualComponent.element as HTMLElement, options?.anchor)
+  const stopAutoUpdate = autoUpdatePosition(
+    editor,
+    virtualComponent.element as HTMLElement,
+    options?.anchor,
+  )
 
   const clickHandler = createHandleCloseOnClick(editor, options)
 
   document.addEventListener('click', clickHandler)
 
+  // Every caller destroys the popover when it closes, so this is where the position updates and the
+  //   click handler stop.
+  const destroy = virtualComponent.destroy.bind(virtualComponent)
+
+  // Callers close the popover only through editor commands, which a destroyed editor no longer runs.
+  const handleEditorDestroy = () => {
+    virtualComponent.element?.remove()
+    virtualComponent.destroy()
+  }
+
+  virtualComponent.destroy = () => {
+    stopAutoUpdate?.()
+    document.removeEventListener('click', clickHandler)
+    editor.off('destroy', handleEditorDestroy)
+    destroy()
+  }
+
+  editor.on('destroy', handleEditorDestroy)
+
   return virtualComponent
 }
 
-export const rectUnion = (...rects: DOMRect[]) => {
+const rectUnion = (...rects: DOMRect[]) => {
   const validRects = rects.filter((rect) => rect)
 
   if (!validRects.length) return new DOMRect(-1000, -1000, 0, 0)
@@ -231,39 +257,6 @@ export const getReferenceClientRect = (editor: Editor) => {
   }
 
   return rectUnion(...selectedCells.map((cell) => cell.getBoundingClientRect()))
-}
-
-export const getPreviousNodeFromPosition = (
-  editor: Editor,
-  position: number,
-  options = {} as { fallbackToCursorPosition: boolean },
-) => {
-  const { fallbackToCursorPosition = true } = options
-
-  let previousNode = null
-  const insertPosition = editor.state.doc.resolve(position)
-
-  if (position > 0) {
-    if (insertPosition.depth > 0) {
-      // When inside a block node, resolve the node that precedes our insertion point
-      const prevNodePos = insertPosition.before(insertPosition.depth)
-      previousNode = editor.state.doc.nodeAt(prevNodePos)
-    } else {
-      // At doc root level use nodeBefore so we get the actual preceding top-level node
-      // (e.g. TipTap's trailing empty paragraph) rather than the cursor's enclosing node.
-      // This prevents inserting a redundant blank line when an empty paragraph already
-      // precedes the insertion point (e.g. after a remove+re-add cycle).
-      previousNode = insertPosition.nodeBefore
-    }
-  }
-
-  if (!previousNode && fallbackToCursorPosition) {
-    const { $from } = editor.state.selection
-    const prevNodePos = $from.before($from.depth)
-    previousNode = editor.state.doc.nodeAt(prevNodePos)
-  }
-
-  return previousNode
 }
 
 export const clamp = (val: number, min: number, max: number) =>

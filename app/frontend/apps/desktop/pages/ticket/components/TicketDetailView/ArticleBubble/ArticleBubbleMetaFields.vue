@@ -29,21 +29,21 @@ const { fields } = useArticleMeta(toRef(props, 'article'))
           :prefix-icon="field.icon && !field.component ? field.icon : undefined"
           v-bind="field.props || {}"
           :context="{ field, article }"
-          class="max-w-full shrink text-black! dark:text-white!"
+          class="max-w-full shrink text-contrast!"
         >
           {{ field.value }}
         </Component>
 
         <template v-if="field.links?.length">
           <CommonLink
-            v-for="{ url, api, label, target } of field.links"
-            :key="url"
-            :link="url"
-            :rest-api="api"
-            :target="target"
+            v-for="link of field.links"
+            :key="link.url"
+            :link="link.url"
+            :rest-api="link.api"
+            :target="link.target"
             size="medium"
           >
-            {{ $t(label) }}
+            {{ $t(link.name) }}
           </CommonLink>
         </template>
       </div>

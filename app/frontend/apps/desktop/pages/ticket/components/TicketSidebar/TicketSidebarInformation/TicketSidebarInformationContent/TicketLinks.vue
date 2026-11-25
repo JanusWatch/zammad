@@ -67,12 +67,10 @@ const deleteLink = async (targetId: string, type: string) => {
         })
       },
     }),
-    {
-      errorShowNotification: false,
-    },
   )
 
-  deleteLinkMutation.send()
+  // The handler has already notified about a failure, and the link stays in the list.
+  deleteLinkMutation.send().catch(() => {})
 }
 
 const linkFlyout = useFlyout({
@@ -101,7 +99,7 @@ defineExpose({ hasLinks })
         class="flex w-full flex-col rounded-lg bg-blue-200 px-2.5 pt-1 pb-1.5 dark:bg-gray-700"
       >
         <div v-for="(type, idx) in linkTypesWithLinks" :key="type.id" class="space-y-2">
-          <CommonLabel size="small" class="text-stone-200! dark:text-neutral-500!">
+          <CommonLabel size="small" class="text-muted!">
             {{ $t(type.label) }}
           </CommonLabel>
 

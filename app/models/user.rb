@@ -24,6 +24,7 @@ class User < ApplicationModel
   include User::HasAuditLogs
   include User::Search
   include User::SearchIndex
+  include User::TerminatesSessions
   include User::TouchesOrganization
   include User::TriggersSubscriptions
   include User::PerformsGeoLookup
@@ -33,13 +34,14 @@ class User < ApplicationModel
 
   SENSITIVE_FIELDS = %i[password].freeze
 
-  has_and_belongs_to_many :organizations,          after_add: %i[cache_update create_organization_add_history], after_remove: %i[cache_update create_organization_remove_history], before_add: %i[check_organization_uniqueness], class_name: 'Organization'
+  has_and_belongs_to_many :organizations,          after_add: %i[cache_update create_organization_add_history note_membership_change], after_remove: %i[cache_update create_organization_remove_history note_membership_change], before_add: %i[check_organization_uniqueness ensure_different_organizations_on_commit], class_name: 'Organization'
   has_and_belongs_to_many :overviews,              dependent: :nullify
   has_many                :tokens,                 after_add: :cache_update, after_remove: :cache_update, dependent: :destroy
   has_many                :authorizations,         after_add: :cache_update, after_remove: :cache_update, dependent: :destroy
   has_many                :online_notifications,   dependent: :destroy
   has_many                :taskbars,               dependent: :destroy
   has_many                :user_devices,           dependent: :destroy
+  has_many                :push_subscriptions,     dependent: :destroy
   has_one                 :chat_agent_created_by,  class_name: 'Chat::Agent', foreign_key: :created_by_id, dependent: :destroy, inverse_of: :created_by
   has_one                 :chat_agent_updated_by,  class_name: 'Chat::Agent', foreign_key: :updated_by_id, dependent: :destroy, inverse_of: :updated_by
   has_many                :chat_sessions,          class_name: 'Chat::Session', dependent: :destroy
@@ -61,6 +63,7 @@ class User < ApplicationModel
   before_create     :validate_preferences, :domain_based_assignment, :set_locale
   before_update     :validate_preferences, :reset_login_failed_after_password_change, :validate_agent_limit_by_attributes, :last_admin_check_by_attribute
   before_destroy    :destroy_longer_required_objects, :destroy_move_dependency_ownership
+  after_save        :track_caller_id_change
   after_commit      :update_caller_id
 
   validate :ensure_identifier, :ensure_email
@@ -68,12 +71,31 @@ class User < ApplicationModel
 
   validates :login, uniqueness: { case_sensitive: false }
 
+  # Downcases the input as #check_login stores the login. The LOWER() comparison is
+  # the one index_users_on_login can serve; where(login:) keeps the result exact.
+  scope :by_login,          ->(login) { by_login_case_sensitive(login&.downcase) }
+  # #check_email stores the address downcased as well.
+  scope :by_login_or_email, ->(value) { value.nil? ? none : by_login(value).or(where(email: value.downcase)) }
+  # Only for the lookups that match the login as given, where a value with
+  # upper-case letters never matches: the SSO uid, mail headers, association names.
+  scope :by_login_case_sensitive, lambda { |login|
+    return none if login.nil?
+    # The bind below takes a scalar only; an array keeps the IN condition where(login:) builds.
+    return where(login:) if !login.is_a?(String)
+
+    # Built from the relation's table and a bind: the predicate follows a table
+    # alias under joins, and all logins share one prepared statement.
+    lower_value = Arel::Nodes::NamedFunction.new('LOWER', [predicate_builder.build_bind_attribute(:login, login)])
+    where(login:).where(table[:login].lower.eq(lower_value))
+  }
+
   available_perform_change_actions :data_privacy_deletion_task, :attribute_updates
 
   # workflow checks should run after before_create and before_update callbacks
   # the transaction dispatcher must be run after the workflow checks!
   include ChecksCoreWorkflow
   include HasTransactionDispatcher
+  include ChecksSecondaryOrganizationsOnCommit
 
   core_workflow_screens 'create', 'edit', 'invite_agent'
   core_workflow_admin_screens 'create', 'edit'
@@ -164,20 +186,7 @@ returns
     # Email sending: always first name last name (regardless of setting)
     format = recipient_line ? 'first_last' : Setting.get('user_name_format')
 
-    parts, separator = case format
-                       when 'last_first'
-                         [[lastname, firstname], ' ']
-                       when 'last_first_comma'
-                         [[lastname, firstname], ', ']
-                       else
-                         [[firstname, lastname], ' ']
-                       end
-
-    name = parts
-      .map { |part| part.to_s.strip }
-      .compact_blank
-      .join(separator)
-      .strip
+    name = display_name_from_parts(format)
 
     if name.blank? && email.present? && email_fallback
       return email
@@ -198,6 +207,37 @@ returns
     end
 
     name
+  end
+
+=begin
+
+display name of user, built only from the name parts following the given
+format - without any fallback to personal data like email or phone. The
+server side twin of the frontend's displayNameFromParts().
+
+  user = User.find(123)
+  result = user.display_name_from_parts
+
+returns
+
+  result = "Bob Smith"
+
+=end
+
+  def display_name_from_parts(format = Setting.get('user_name_format'))
+    parts, separator = case format
+                       when 'last_first'
+                         [[lastname, firstname], ' ']
+                       when 'last_first_comma'
+                         [[lastname, firstname], ', ']
+                       else
+                         [[firstname, lastname], ' ']
+                       end
+
+    parts
+      .map { |part| part.to_s.strip }
+      .compact_blank
+      .join(separator)
   end
 
 =begin
@@ -314,7 +354,7 @@ returns
     return if identifier.blank?
 
     # try to find user based on login
-    user = User.find_by(login: identifier.downcase)
+    user = User.by_login(identifier).take
     return user if user
 
     # try second lookup with email
@@ -348,13 +388,16 @@ returns
         email:         hash['info']['email'],
         image_source:  hash['info']['image'],
         web:           url,
-        address:       hash['info']['location'],
         note:          hash['info']['description'],
         source:        hash['provider'],
         role_ids:      Role.signup_role_ids,
         updated_by_id: 1,
         created_by_id: 1,
       }
+
+      # Admins can delete the address attribute in the object manager.
+      data[:address] = hash['info']['location'] if has_attribute?(:address)
+
       if hash['info']['first_name'].present? && hash['info']['last_name'].present?
         data[:firstname] = hash['info']['first_name']
         data[:lastname] = hash['info']['last_name']
@@ -364,6 +407,13 @@ returns
       logger.error e
       raise Exceptions::UnprocessableContent, e.message
     end
+  end
+
+  # CanLookup's where(login:) alone would bypass the index again.
+  def self.lookup_relation(attr)
+    return super if !attr.key?(:login)
+
+    by_login_case_sensitive(attr[:login])
   end
 
   # Find a user by mobile number, either directly or by number variants stored in the Cti::CallerIds.
@@ -396,7 +446,7 @@ returns
     return if username.blank?
 
     # try to find user based on login
-    user = User.find_by(login: username.downcase.strip, active: true)
+    user = User.by_login(username.strip).find_by(active: true)
 
     # try second lookup with email
     user ||= User.find_by(email: username.downcase.strip, active: true)
@@ -458,7 +508,7 @@ returns
     return if username.blank?
 
     # try to find user based on login
-    user = User.find_by(login: username.downcase.strip, active: true)
+    user = User.by_login(username.strip).find_by(active: true)
 
     # try second lookup with email
     user ||= User.find_by(email: username.downcase.strip, active: true)
@@ -654,6 +704,19 @@ returns
     user.fill_notification_config_preferences
 
     user.save!
+  end
+
+  # .reset_notifications_preferences! is also used to apply the admin defaults to all agents.
+  # This one also removes the group limit and sound settings, so the frontends use their defaults.
+  #
+  # @option user [User] to reset preferences
+  def self.reset_personal_notifications_preferences!(user)
+    return if !user.permissions? 'ticket.agent'
+
+    user.preferences[:notification_config]&.delete(:group_ids)
+    user.preferences.delete(:notification_sound)
+
+    reset_notifications_preferences!(user)
   end
 
 =begin
@@ -894,7 +957,7 @@ try to find correct name
     self.login = ([nil] + Array(1..20) + [ SecureRandom.uuid ])
       .lazy
       .map { |elem| "#{base_login}#{elem}" }
-      .find { |elem| !User.where(login: elem).where.not(id:).exists? }
+      .find { |elem| !User.by_login(elem).where.not(id:).exists? }
   end
 
   def check_mail_delivery_failed
@@ -1161,14 +1224,22 @@ raise 'At least one user need to have admin permissions'
     true
   end
 
+  # Remembered on save, as a touch later in the same transaction, like the one a new
+  #   ticket gives its customer, has replaced previous_changes by the time of the commit.
+  #   A change like [nil, ""] does not count.
+  def track_caller_id_change
+    @caller_id_changed = saved_changes.slice(:phone, :mobile).values.flatten.any?(&:present?)
+  end
+
   # When adding/removing a phone/mobile number from the User table,
   # update caller ID table
   # to adopt/orphan matching Cti::Logs accordingly
   # (see https://github.com/zammad/zammad/issues/2057)
   def update_caller_id
-    # skip if "phone/mobile" does not change, or changes like [nil, ""]
-    return if persisted? && previous_changes.slice(:phone, :mobile).values.flatten.none?(&:present?)
+    return if persisted? && !@caller_id_changed
     return if destroyed? && phone.blank? && mobile.blank?
+
+    @caller_id_changed = false
 
     Cti::CallerId.add(self)
   end
@@ -1181,10 +1252,16 @@ raise 'At least one user need to have admin permissions'
   end
 
   def check_organization_uniqueness(new_organization)
-    return if organization != new_organization && organization_ids.exclude?(new_organization.id)
+    return if organization_ids.exclude?(new_organization.id)
 
-    errors.add :base, __('Secondary organizations cannot include the primary organization.')
+    errors.add :base, __('Secondary organizations cannot include the same organization twice.')
 
     raise ActiveRecord::RecordInvalid, self
+  end
+
+  def ensure_different_organizations_on_commit(_new_organization)
+    return if new_record?
+
+    check_secondary_organizations_on_commit(User.where(id: id))
   end
 end

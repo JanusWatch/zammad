@@ -8,8 +8,9 @@ import { computed, nextTick, ref, shallowRef, toRef, watch } from 'vue'
 import useValue from '#shared/components/Form/composables/useValue.ts'
 import type { FormFieldContext } from '#shared/components/Form/types/field.ts'
 import type { FormFieldValue } from '#shared/components/Form/types.ts'
+import { autofocusFormField } from '#shared/components/Form/utils.ts'
 import { useTouchDevice } from '#shared/composables/useTouchDevice.ts'
-import type { FilterAttribute } from '#shared/entities/object-attributes/types/store.ts'
+import type { FilterAttribute } from '#shared/entities/core/attributes/types/store.ts'
 import { i18n } from '#shared/i18n.ts'
 
 import CommonButton from '#desktop/components/CommonButton/CommonButton.vue'
@@ -185,12 +186,16 @@ const addFieldActive = ref(false)
 // Focus the first input belonging to a row. CSS attribute-prefix selector
 // matches any element whose id starts with the row's prefix; the first one
 // in document order is the row's first input regardless of operator shape.
-const focusFieldInput = (attributeName: string) => {
+const focusFieldInput = (
+  attributeName: string,
+  focus = (element: HTMLElement) => element.focus(),
+) => {
   const rowPrefix = inputIdFor(attributeName, '')
 
   nextTick(() => {
     requestAnimationFrame(() => {
-      document.querySelector<HTMLElement>(`[id^="${rowPrefix}"]`)?.focus()
+      const element = document.querySelector<HTMLElement>(`[id^="${rowPrefix}"]`)
+      if (element) focus(element)
     })
   })
 }
@@ -207,7 +212,8 @@ const addField = (attribute: FilterAttribute, operator: string) => {
     }),
   )
 
-  focusFieldInput(attribute.name)
+  // Only the row just added is autofocused, so only its dropdown opens.
+  focusFieldInput(attribute.name, autofocusFormField)
 }
 
 // The treeselect's `:auto-open-dropdown` prop opens its dropdown on mount.
@@ -311,7 +317,7 @@ const legendNode = (attribute: FilterAttribute): FormKitSchemaNode => {
     $el: 'legend',
     attrs: {
       // `cursor-default` so the clickable legend matches a field label.
-      class: 'mb-1 block w-fit cursor-default text-sm text-gray-100 dark:text-neutral-400',
+      class: 'mb-1 block w-fit cursor-default text-sm text-normal',
       // A `<legend>` has no native click-to-focus (a `<label for>` would
       // double-label the first input), so focus it ourselves.
       onClick: () => focusFieldInput(attribute.name),

@@ -6,7 +6,7 @@ class Gql::ZammadSchema < GraphQL::Schema
   subscription  Gql::EntryPoints::Subscriptions
   context_class Gql::Context::CurrentUserAware
 
-  use GraphQL::Subscriptions::ActionCableSubscriptions, broadcast: true, default_broadcastable: false
+  use Gql::ActionCableSubscriptions, broadcast: true, default_broadcastable: false
   use GraphQL::Batch
   use GraphQL::FragmentCache
 
@@ -167,7 +167,7 @@ class Gql::ZammadSchema < GraphQL::Schema
   end
 
   def self.max_aliases_count
-    5
+    10
   end
 
   def self.max_directives_count

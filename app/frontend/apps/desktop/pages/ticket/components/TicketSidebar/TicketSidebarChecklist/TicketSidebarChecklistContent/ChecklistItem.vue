@@ -46,7 +46,7 @@ const editItem = async (newValue: string) => {
 
 const isEditing = ref(false)
 
-const actions: MenuItem[] = [
+const actions = computed<MenuItem[]>(() => [
   {
     key: 'check',
     label: __('Check item'),
@@ -71,11 +71,14 @@ const actions: MenuItem[] = [
   {
     key: 'remove',
     label: __('Remove item'),
-    variant: 'danger',
     icon: 'trash3',
+    separatorTop: true,
+    // An empty item is removed on the click itself, without the question a filled one gets, so
+    //   only then is this action the point of no return.
+    variant: props.item.text?.length ? undefined : 'danger',
     onClick: () => removeItem(),
   },
-]
+])
 
 defineExpose({
   focusInput: () => inlineEditInstance.value?.activateEditing(),
@@ -87,15 +90,14 @@ defineExpose({
 
 <template>
   <li
-    class="flex min-h-10 gap-2 overflow-x-clip rounded-lg bg-blue-200 p-2 text-stone-200 dark:bg-gray-700 dark:text-neutral-500"
-    :class="{ 'items-center': isEditing }"
+    class="flex min-h-10 gap-2 overflow-x-clip rounded-lg bg-blue-200 p-2 text-muted dark:bg-gray-700"
   >
     <template v-if="isReordering">
       <CommonIcon name="grip-vertical" class="mt-1.5 inline-block shrink-0" size="xs" />
       <CommonIcon
         v-if="!isTicketItem"
         tabindex="0"
-        class="mt-1.5 shrink-0 text-gray-100 outline-hidden focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-blue-800 dark:text-neutral-400"
+        class="mt-1.5 shrink-0 text-normal outline-hidden focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-blue-800"
         size="xs"
         role="checkbox"
         aria-readonly="true"
@@ -129,6 +131,7 @@ defineExpose({
       :ticket="item.ticketReference?.ticket"
     />
 
+    <!-- The edit buttons take the place of the action menu, the label reserves only the rest of their room. -->
     <CommonInlineEdit
       v-else
       ref="inline-edit"
@@ -141,8 +144,8 @@ defineExpose({
       :placeholder="$t('Text or ticket identifier')"
       :class="{ 'pointer-events-none': isReordering }"
       :classes="{
-        label: 'dark:text-white text-black',
-        input: 'dark:text-white text-black',
+        label: 'text-contrast pe-7!',
+        input: ' text-contrast',
       }"
       :disabled="isReordering"
       @submit-edit="editItem"

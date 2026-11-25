@@ -6,10 +6,10 @@ import { isEqual, merge } from 'lodash-es'
 import { computed, nextTick, ref, shallowRef, toRef, useTemplateRef, watch } from 'vue'
 import { onBeforeRouteUpdate } from 'vue-router'
 
-import ObjectAttribute from '#shared/components/ObjectAttributes/ObjectAttribute.vue'
-import { useObjectAttributes } from '#shared/entities/object-attributes/composables/useObjectAttributes.ts'
-import type { ObjectAttribute as ObjectAttributeType } from '#shared/entities/object-attributes/types/store.ts'
-import { flattenObjectAttributeValues } from '#shared/entities/object-attributes/utils.ts'
+import EntityAttributeContent from '#shared/components/EntityAttributes/EntityAttribute.vue'
+import { useEntityAttributes } from '#shared/entities/core/attributes/composables/useEntityAttributes.ts'
+import type { EntityAttribute } from '#shared/entities/core/attributes/types/store.ts'
+import { flattenObjectAttributeValues } from '#shared/entities/core/attributes/utils.ts'
 import type { TicketById } from '#shared/entities/ticket/types.ts'
 import { EnumObjectManagerObjects, EnumOrderDirection } from '#shared/graphql/types.ts'
 import { i18n } from '#shared/i18n.ts'
@@ -25,6 +25,7 @@ import TableHeader from './TableHeader.vue'
 import TableRow from './TableRow.vue'
 import TableRowGroupBy from './TableRowGroupBy.vue'
 import { type AdvancedTableProps, type TableAdvancedItem, type TableAttribute } from './types.ts'
+import { getTicketPriorityLinkColorClasses } from './utils.ts'
 
 const props = withDefaults(defineProps<AdvancedTableProps>(), {
   maxItems: 1000,
@@ -43,8 +44,8 @@ const cellAlignmentClasses = {
   left: 'justify-start text-left',
 }
 
-const { attributesLookup: objectAttributesLookup } = props.object
-  ? useObjectAttributes(props.object)
+const { attributesLookup: entityAttributesLookup } = props.entity
+  ? useEntityAttributes(props.entity)
   : { attributesLookup: null }
 
 const localAttributesLookup = computed(() => {
@@ -68,8 +69,8 @@ const addLocalHeaders = (table: TableAttribute[]) =>
   localHeaders.value.forEach((headerName) => {
     // Try to find matching attribute from both sources
     const localAttribute = findAttribute(headerName, localAttributesLookup.value)
-    const objectAttribute = objectAttributesLookup?.value
-      ? findAttribute(headerName, objectAttributesLookup.value)
+    const objectAttribute = entityAttributesLookup?.value
+      ? findAttribute(headerName, entityAttributesLookup.value)
       : null
 
     // Skip if no attribute definition found
@@ -77,7 +78,7 @@ const addLocalHeaders = (table: TableAttribute[]) =>
 
     const attributeExtension = props.attributeExtensions?.[headerName]
 
-    // Convert ObjectAttribute to TableAttribute structure if it exists
+    // Convert EntityAttribute to TableAttribute structure if it exists
     const mergedAttribute = objectAttribute
       ? (merge(
           {
@@ -91,6 +92,11 @@ const addLocalHeaders = (table: TableAttribute[]) =>
           attributeExtension,
         ) as TableAttribute)
       : (localAttribute as TableAttribute)
+
+    if (props.disableRelationSorting && objectAttribute?.dataOption?.relation) {
+      mergedAttribute.headerPreferences ||= {}
+      mergedAttribute.headerPreferences.noSorting = true
+    }
 
     // Set default alignment for right-aligned data types.
     if (
@@ -273,8 +279,8 @@ const groupByAttribute = computed(() => {
 
   // Try to find matching attribute from both sources
   const localAttribute = findAttribute(props.groupBy, localAttributesLookup.value)
-  const objectAttribute = objectAttributesLookup?.value
-    ? findAttribute(props.groupBy, objectAttributesLookup.value)
+  const objectAttribute = entityAttributesLookup?.value
+    ? findAttribute(props.groupBy, entityAttributesLookup.value)
     : null
 
   return (localAttribute || objectAttribute) as TableAttribute
@@ -435,16 +441,9 @@ const endOfListMessage = computed(() => {
 })
 
 const getLinkColorClasses = (item: TableAdvancedItem) => {
-  if (props.object !== EnumObjectManagerObjects.Ticket) return ''
+  if (props.entity !== EnumObjectManagerObjects.Ticket) return ''
 
-  switch ((item as TicketById).priority?.uiColor) {
-    case 'high-priority':
-      return 'text-red-500'
-    case 'low-priority':
-      return 'text-stone-200 dark:text-neutral-500'
-    default:
-      return ''
-  }
+  return getTicketPriorityLinkColorClasses((item as TicketById).priority?.uiColor)
 }
 
 const selectAllLoadedItems = () => {
@@ -541,7 +540,7 @@ watch(
       class="relative"
       :inert="isSorting"
       :class="{
-        'opacity-50 before:absolute before:z-20 before:h-full before:w-full': isSorting,
+        'opacity-50 before:absolute before:z-20 before:size-full': isSorting,
       }"
     >
       <template v-for="(item, index) in loadedItems" :key="`${index}-${item.id}`">
@@ -556,6 +555,7 @@ watch(
         />
         <TableRow
           :item="item"
+          :class="rowClass?.(item)"
           :is-row-selected="!hasBulkAction && item.id === selectedRowId"
           tabindex="-1"
           :has-checkbox="hasBulkAction"
@@ -566,7 +566,12 @@ watch(
           v-on="rowHandlers"
         >
           <template #default="{ isRowSelected }">
-            <td v-if="hasBulkAction" headers="select-header" class="size-10">
+            <td
+              v-if="hasBulkAction"
+              headers="select-header"
+              :class="{ 'h-10': !dynamicRowHeight }"
+              class="w-10"
+            >
               <CellCheckbox
                 :item="item"
                 :item-ids="checkedItemIds"
@@ -578,7 +583,8 @@ watch(
               v-for="tableAttribute in tableAttributes"
               :key="`${item.id}-${tableAttribute.name}`"
               :headers="`${tableAttribute.name}-header`"
-              class="h-10 text-sm"
+              :class="{ 'h-10': !dynamicRowHeight }"
+              class="text-sm"
             >
               <div
                 class="flex size-full items-center"
@@ -603,33 +609,33 @@ watch(
                     :internal="tableAttribute.columnPreferences.link.internal"
                     :class="[
                       {
-                        'text-black dark:text-white': isRowSelected,
+                        'text-contrast': isRowSelected,
                       },
                       getLinkColorClasses(item),
                     ]"
-                    class="block! truncate text-sm group-hover:text-black! group-focus-visible:text-white group-active:text-white! hover:no-underline! group-hover:dark:text-white! group-active:dark:text-white!"
+                    class="block! truncate text-sm group-hover:text-contrast! group-focus-visible:text-white group-active:text-white! hover:no-underline! group-active:dark:text-white!"
                     @click.stop
                     @keydown.stop
                   >
-                    <ObjectAttribute
+                    <EntityAttributeContent
                       mode="table"
-                      :attribute="tableAttribute as unknown as ObjectAttributeType"
+                      :attribute="tableAttribute as unknown as EntityAttribute"
                       :object="item"
                     />
                   </CommonLink>
                   <CommonLabel
                     v-else
                     v-tooltip.truncate="getTooltipText(item, tableAttribute)"
-                    class="block! truncate text-gray-100! group-hover:text-black! group-focus-visible:text-white! group-active:text-white! dark:text-neutral-400! group-hover:dark:text-white! group-active:dark:text-white!"
+                    class="block! truncate text-normal! group-hover:text-contrast! group-focus-visible:text-white! group-active:text-white! group-active:dark:text-white!"
                     :class="[
                       {
-                        'text-black! dark:text-white!': isRowSelected,
+                        'text-contrast!': isRowSelected,
                       },
                     ]"
                   >
-                    <ObjectAttribute
+                    <EntityAttributeContent
                       mode="table"
-                      :attribute="tableAttribute as unknown as ObjectAttributeType"
+                      :attribute="tableAttribute as unknown as EntityAttribute"
                       :object="item"
                     />
                   </CommonLabel>
@@ -638,7 +644,12 @@ watch(
                 <slot :name="`item-suffix-${tableAttribute.name}`" :item="item" />
               </div>
             </td>
-            <td v-if="actions" headers="actions-header" class="h-10 px-2.5 py-1 text-center">
+            <td
+              v-if="actions"
+              headers="actions-header"
+              :class="{ 'h-10': !dynamicRowHeight }"
+              class="px-2.5 py-1 text-center"
+            >
               <slot name="actions" v-bind="{ actions, item }">
                 <CommonActionMenu
                   class="flex! items-center justify-center"
@@ -672,11 +683,7 @@ watch(
     </tbody>
   </table>
 
-  <CommonLabel
-    v-if="endOfListMessage"
-    class="py-2.5 text-stone-200! dark:text-neutral-500!"
-    size="small"
-  >
+  <CommonLabel v-if="endOfListMessage" class="py-2.5 text-muted!" size="small">
     {{ endOfListMessage }}
   </CommonLabel>
 </template>

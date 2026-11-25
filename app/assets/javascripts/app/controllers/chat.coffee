@@ -120,6 +120,11 @@ class App.CustomerChat extends App.Controller
       chat_sessions: list
     )
 
+  # Bootstrap's popover sanitizer has no <time> in its allowlist and would drop
+  #   the relative time rendered by the humanTime helper together with its text.
+  chatSessionListWhiteList: ->
+    $.extend({}, $.fn.popover.Constructor.DEFAULTS.whiteList, time: ['datetime', 'title'])
+
 
   show: (params) =>
     @title(__('Customer Chat'), true)
@@ -253,6 +258,7 @@ class App.CustomerChat extends App.Controller
           @popovers.push @el.find(".js-waitingCustomers[data-chat-id=#{chat.id}] .js-info").popover(
             trigger:    'hover'
             html:       true
+            whiteList:  @chatSessionListWhiteList()
             animation:  false
             delay:      0
             placement:  'bottom'
@@ -267,6 +273,7 @@ class App.CustomerChat extends App.Controller
       @popovers.push @el.find('.js-waitingCustomers .js-totalInfo').popover(
         trigger:    'hover'
         html:       true
+        whiteList:  @chatSessionListWhiteList()
         animation:  false
         delay:      0
         placement:  'bottom'
@@ -289,6 +296,7 @@ class App.CustomerChat extends App.Controller
     @popovers.push @el.find('.js-chattingCustomers .js-info').popover(
       trigger:    'hover'
       html:       true
+      whiteList:  @chatSessionListWhiteList()
       animation:  false
       delay:      0
       placement:  'bottom'
@@ -498,8 +506,8 @@ class ChatWindow extends App.Controller
         tags: params.tags
     )
 
-    if !_.isEmpty(params.name)
-      @metaName.text(params.name)
+    @name = if _.isEmpty(params.name) then @chat.displayName() else params.name
+    @metaName.text(@name)
 
   render: ->
     @html App.view('customer_chat/chat_window')(
@@ -557,7 +565,7 @@ class ChatWindow extends App.Controller
     )
 
     configureAttributesOutbound = [
-      { name: 'name', display: __('Name'), tag: 'input', null: true, },
+      { name: 'name', display: __('Name'), tag: 'input', maxlength: 250, null: true, },
       { name: 'tags', display: __('Tags'), tag: 'tag', null: true, },
     ]
     new App.ControllerForm(

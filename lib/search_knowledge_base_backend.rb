@@ -1,7 +1,39 @@
 # Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
 class SearchKnowledgeBaseBackend
-  attr_reader :knowledge_base
+  # Private Use Area code points to mark the matched runs of a highlighted fragment with.
+  # Elasticsearch's default is <em>…</em>, which cannot be told apart from the same characters
+  # occurring in the indexed text - that text is plain, so it can contain literal angle brackets.
+  # These cannot, which is what lets a caller escape a fragment and turn only the marks into markup
+  # afterwards.
+  HIGHLIGHT_START = "\u{E000}".freeze
+  HIGHLIGHT_END   = "\u{E001}".freeze
+
+  # Applied unless the caller passes its own :highlight_options, which win key by key.
+  DEFAULT_HIGHLIGHT_OPTIONS = {
+    pre_tags:  [HIGHLIGHT_START],
+    post_tags: [HIGHLIGHT_END],
+  }.freeze
+
+  # For the text on its way into the index: the guarantee above only holds if the marks cannot
+  #   arrive from the text itself. Nothing keeps an editor from pasting an icon-font glyph, and those
+  #   fonts map their glyphs to the same code point range.
+  def self.without_highlight_marks(text)
+    text.delete(HIGHLIGHT_START + HIGHLIGHT_END)
+  end
+
+  # For text that is not HTML but may still carry markup: a title is a text input, but nothing
+  #   validates it against markup, so a stored one can read `<b>Bold</b> topic`. The index and every
+  #   search preview show the plain text instead; the column itself keeps what was written to it.
+  #
+  # Parsed rather than run through String#html2text: that one is regex-based and drops any run
+  #   between a `<` and the next `>`, turning `RAM < 8 GB > 4 GB` into `RAM 4 GB`. A parser reads
+  #   `< 8` as text, since a tag has to start with a letter.
+  def self.plain_text(text)
+    without_highlight_marks(Loofah.html5_fragment(text.to_s).text(encode_special_chars: false))
+  end
+
+  attr_reader :knowledge_base, :user
 
   # @param [Hash] params the paramsused to initialize search instance
   # @option params [KnowledgeBase, <KnowledgeBase>] :knowledge_base (nil) knowledge base instance
@@ -11,29 +43,33 @@ class SearchKnowledgeBaseBackend
   # @option params [String, Array<String>] :index (nil) indexes to limit search to, searches all indexes if nil
   # @option params [Integer] :limit per page param for paginatin
   # @option params [Boolean] :highlight_enabled (true) highlight matching text
-  # @option params [Hash] :highlight_options (nil) Elasticsearch highlight settings (pre_tags, post_tags,
-  #   fragment_size, number_of_fragments, no_match_size, ...) applied to every highlighted field.
-  #   Without it Elasticsearch's defaults apply, i.e. up to five 100 character <em> marked fragments.
+  # @option params [Hash] :highlight_options (nil) Elasticsearch highlight settings (fragment_size,
+  #   number_of_fragments, no_match_size, pre_tags, post_tags, ...) applied to every highlighted field,
+  #   merged over DEFAULT_HIGHLIGHT_OPTIONS key by key. Without it Elasticsearch's defaults apply, i.e.
+  #   up to five 100 character fragments, marked with HIGHLIGHT_START/END.
   # @option params [Hash<String=>String>, Hash<Symbol=>Symbol>] :order_by hash with column => asc/desc
+  # @option params [User] :user (nil) the searching user, whose access the results are filtered by
+  # @option params [Boolean] :include_drafts_and_archived (true) false leaves out the drafts and
+  #   archived answers a user could see, such as an editor, before the hits are counted; only for
+  #   a search of answers alone
+  # @option params [Boolean] :raise_on_failure (false) raise SearchIndexBackend::SearchFailedError where Elasticsearch
+  #   did not run the search, instead of finding nothing
 
   def initialize(params)
-    @params = params.compact
+    @params = params.except(:user).compact
+    @user   = params[:user]
+
+    if !include_drafts_and_archived? && indexes != [KnowledgeBase::Answer::Translation.name]
+      raise ArgumentError, 'leaving out drafts and archived answers needs a search of answers alone'
+    end
 
     prepare_scope_ids
   end
 
-  def use_internal_assets?
-    flavor == :agent && KnowledgeBase.granular_permissions?
-  end
-
-  def search(query, user: nil, pagination: nil)
-    if use_internal_assets? # cache for later use
-      @granular_permissions_handler = KnowledgeBase::InternalAssets.new(user)
-    end
-
+  def search(query, pagination: nil)
     raw_results = raw_results(query, pagination: pagination)
 
-    filtered = filter_results raw_results, user
+    filtered = filter_results raw_results
 
     if pagination
       filtered = filtered.slice pagination.offset, pagination.limit
@@ -51,7 +87,7 @@ class SearchKnowledgeBaseBackend
   def search_fallback_for_index(query, index)
     index
       .constantize
-      .search_sql_text_fallback("%#{query}%")
+      .search_sql_text_fallback("%#{SqlHelper.quote_like(query)}%")
       .apply_kb_scope(@cached_scope_ids)
       .where(kb_locale: kb_locales)
       .reorder(**search_fallback_order)
@@ -69,33 +105,11 @@ class SearchKnowledgeBaseBackend
     results = SearchIndexBackend
       .search(query, indexes, options(query, pagination: pagination))
       .map do |hash|
-        hash[:id]        = hash[:id].to_i
-        hash[:highlight] = repair_highlighted_entities(hash[:highlight]) if hash[:highlight]
+        hash[:id] = hash[:id].to_i
         hash
       end
 
     sort_by_relevance results
-  end
-
-  # The texts are indexed HTML-escaped (see the translations' #search_index_attribute_lookup), so
-  #   `&amp;` carries an `amp` term of its own. A query that matches every term — `*` — marks that
-  #   one too and tears the entity apart, as `&<em>amp</em>;`, which no consumer decodes back to
-  #   `&`. Those terms exist only because of the escaping, so drop the tags inside an entity.
-  def repair_highlighted_entities(highlight)
-    tags   = Regexp.union(highlight_tags)
-    entity = %r{&(?:#{tags})*\w+(?:#{tags})*;}
-
-    highlight.transform_values do |fragments|
-      fragments.map { |fragment| fragment.gsub(entity) { |match| match.gsub(tags, '') } }
-    end
-  end
-
-  # Elasticsearch applies its `<em>` defaults per tag, so a caller naming only one of them still
-  #   gets the other one's default.
-  def highlight_tags
-    highlight_options = @params[:highlight_options].to_h
-
-    (highlight_options[:pre_tags].presence || ['<em>']) + (highlight_options[:post_tags].presence || ['</em>'])
   end
 
   # Elasticsearch is asked once per index and the responses are concatenated
@@ -125,60 +139,96 @@ class SearchKnowledgeBaseBackend
   #   all answers followed by all categories, destroying it.
   #
   # The permitted ids are still resolved once per type, not once per hit.
-  def filter_results(raw_results, user)
+  def filter_results(raw_results)
     permitted_ids = raw_results
       .map { |result| result[:type] }
       .uniq
-      .index_with { |type| translation_ids_for_type(type, user)&.to_set(&:to_i) }
+      .index_with { |type| translation_ids_for_type(type)&.to_set(&:to_i) }
 
     raw_results.select { |result| permitted_ids[result[:type]]&.include?(result[:id].to_i) }
   end
 
-  def translation_ids_for_type(type, user)
+  def translation_ids_for_type(type)
     case type
     when KnowledgeBase::Answer::Translation.name
-      translation_ids_for_answers(user)
+      translation_ids_for_answers
     when KnowledgeBase::Category::Translation.name
-      translation_ids_for_categories(user)
+      translation_ids_for_categories
     when KnowledgeBase::Translation.name
-      translation_ids_for_kbs(user)
+      translation_ids_for_kbs
     end
   end
 
-  def translation_ids_for_answers(user)
-    scope = KnowledgeBase::Answer
-      .joins(:category)
-      .where(knowledge_base_categories: { knowledge_base_id: knowledge_bases })
-      .then do |relation|
-        if use_internal_assets? # cache for later use
-          relation.where(id: @granular_permissions_handler.all_answer_ids)
-        elsif user&.permissions?('knowledge_base.editor')
-          relation
-        elsif user&.permissions?('knowledge_base.reader') && flavor == :agent
-          relation.internal
-        else
-          relation.published
-        end
-      end
+  # Asked once: without drafts and archived answers, the query takes them too (#options_apply_answer_ids).
+  def translation_ids_for_answers
+    @translation_ids_for_answers ||= begin
+      scope = KnowledgeBase::Answer
+        .joins(:category)
+        .where(knowledge_base_categories: { knowledge_base_id: knowledge_bases })
 
-    flatten_translation_ids(scope)
+      visible = if flavor == :agent
+                  KnowledgeBase::Answer.visible_to_user(user)
+                else
+                  KnowledgeBase::Answer.visible_on_help_site_to_user(user)
+                end
+      scope = scope.where(id: visible.select(:id))
+
+      # `internal` covers both internally and publicly published answers.
+      scope = scope.internal if !include_drafts_and_archived?
+
+      flatten_translation_ids(scope)
+    end
   end
 
-  def translation_ids_for_categories(user)
+  def translation_ids_for_categories
     scope = KnowledgeBase::Category.where(knowledge_base_id: knowledge_bases)
 
-    if use_internal_assets?
-      flatten_translation_ids scope.where(id: @granular_permissions_handler.all_category_ids)
-    elsif user&.permissions?('knowledge_base.editor')
+    case access
+    in :granular_agent
+      flatten_translation_ids scope.where(id: internal_assets.all_category_ids)
+    in :granular_public
+      flatten_translation_ids(scope.where(id: editor_category_ids)) +
+        public_category_translation_ids(scope.where.not(id: editor_category_ids))
+    in :editor
       flatten_translation_ids scope
-    elsif user&.permissions?('knowledge_base.reader') && flavor == :agent
+    in :internal
       flatten_answer_translation_ids(scope, :internal)
-    else
-      flatten_answer_translation_ids(scope, :public)
+    in :published
+      public_category_translation_ids(scope)
     end
   end
 
-  def translation_ids_for_kbs(_user)
+  # The translations whose category holds published content in their locale: one query per searched
+  #   locale, where asking each category translation for #public_content? walked one subtree apiece.
+  def public_category_translation_ids(categories)
+    kb_locales.flat_map do |kb_locale|
+      KnowledgeBase::Category::Translation
+        .where(kb_locale:, category: categories.where(knowledge_base_id: kb_locale.knowledge_base_id).with_public_content_in(kb_locale.system_locale_id))
+        .pluck(:id)
+    end
+  end
+
+  # The help site arm follows KnowledgeBase::CategoryPolicy#show_public?; a granular reader edits
+  #   no category, so they get published content without resolving an editor set that is empty anyway.
+  def access
+    @access ||= case [KnowledgeBase.access_for_user(user), flavor]
+                in [:granular, :agent] then :granular_agent
+                in [:granular, _] if user.permissions?('knowledge_base.editor') then :granular_public
+                in [:editor, _]        then :editor
+                in [:reader, :agent]   then :internal
+                else                        :published
+                end
+  end
+
+  def internal_assets
+    @internal_assets ||= KnowledgeBase::InternalAssets.new(user)
+  end
+
+  def editor_category_ids
+    @editor_category_ids ||= KnowledgeBase::AccessibleCategories.for_user(user).editor.map(&:id)
+  end
+
+  def translation_ids_for_kbs
     flatten_translation_ids KnowledgeBase.active.where(id: knowledge_bases)
   end
 
@@ -231,13 +281,18 @@ class SearchKnowledgeBaseBackend
     @params.fetch(:flavor, :public).to_sym
   end
 
+  def include_drafts_and_archived?
+    @params.fetch(:include_drafts_and_archived, true)
+  end
+
   def base_options
     {
-      query_extension: {
+      query_extension:  {
         bool: {
           must: [ { terms: { kb_locale_id: kb_locale_ids } } ]
         }
-      }
+      },
+      raise_on_failure: @params[:raise_on_failure],
     }
   end
 
@@ -260,18 +315,21 @@ class SearchKnowledgeBaseBackend
       'KnowledgeBase::Translation':           %w[title]
     }
 
-    # Opt-in rather than a new default: the legacy knowledge base search dropdown and the public
-    #   help site render these fragments as raw HTML, so they need Elasticsearch's <em> defaults to
-    #   keep working. Only callers that parse the fragments themselves pass their own settings.
-    return if @params[:highlight_options].blank?
-
-    hash[:highlight_options] = @params[:highlight_options]
+    hash[:highlight_options] = DEFAULT_HIGHLIGHT_OPTIONS.merge(@params[:highlight_options].to_h)
   end
 
   def options_apply_scope(hash)
     return if !@params.fetch(:scope, nil)
 
     hash[:query_extension][:bool][:must].push({ terms: { scope_id: @cached_scope_ids } })
+  end
+
+  # Without drafts and archived answers, Elasticsearch gets the answers the database lets the user
+  #   read, so that no other answer takes a place among the hits it is asked for.
+  def options_apply_answer_ids(hash)
+    return if include_drafts_and_archived?
+
+    hash[:query_extension][:bool][:must].push({ terms: { _id: translation_ids_for_answers } })
   end
 
   def options_apply_pagination(hash, pagination)
@@ -347,6 +405,7 @@ class SearchKnowledgeBaseBackend
     options_apply_score(output)
     options_apply_highlight(output)
     options_apply_scope(output)
+    options_apply_answer_ids(output)
     options_apply_pagination(output, pagination)
     options_apply_order(output)
     options_apply_fulltext(output)

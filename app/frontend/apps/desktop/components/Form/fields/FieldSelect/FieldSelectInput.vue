@@ -1,27 +1,23 @@
 <!-- Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/ -->
 
 <script setup lang="ts">
-import {
-  useDebounceFn,
-  useElementBounding,
-  useElementVisibility,
-  useWindowSize,
-} from '@vueuse/core'
+import { useDebounceFn } from '@vueuse/core'
 import { escapeRegExp } from 'lodash-es'
-import { useTemplateRef, computed, nextTick, onMounted, ref, toRef, watch } from 'vue'
+import { useTemplateRef, computed, ref, toRef, watch } from 'vue'
 
 import type { SelectOption } from '#shared/components/CommonSelect/types.ts'
 import useValue from '#shared/components/Form/composables/useValue.ts'
 import type { SelectContext } from '#shared/components/Form/fields/FieldSelect/types.ts'
 import useSelectOptions from '#shared/composables/useSelectOptions.ts'
 import useSelectPreselect from '#shared/composables/useSelectPreselect.ts'
-import { useTrapTab } from '#shared/composables/useTrapTab.ts'
 import { useFormBlock } from '#shared/form/useFormBlock.ts'
 import { i18n } from '#shared/i18n.ts'
 import stopEvent from '#shared/utils/events.ts'
+import { deaccent } from '#shared/utils/labelMatching.ts'
 
 import CommonInputSearch from '#desktop/components/CommonInputSearch/CommonInputSearch.vue'
 import CommonSelect from '#desktop/components/CommonSelect/CommonSelect.vue'
+import { useSelectDropdown } from '#desktop/form/composables/useSelectDropdown/useSelectDropdown.ts'
 
 interface Props {
   context: SelectContext & {
@@ -51,15 +47,24 @@ const selectInstance = useTemplateRef('select')
 
 const filter = ref('')
 
-const { activateTabTrap, deactivateTabTrap } = useTrapTab(inputElement, true)
+const {
+  deactivateTabTrap,
+  isBelowHalfScreen,
+  isInputVisible,
+  openSelectDropdown,
+  openOrMoveFocusToDropdown,
+} = useSelectDropdown(props.context, {
+  input: inputElement,
+  output: outputElement,
+  filterInput: filterInputElement,
+  dropdown: selectInstance,
+})
 
 const clearFilter = () => {
   filter.value = ''
 }
 
 watch(() => contextReactive.value.noFiltering, clearFilter)
-
-const deaccent = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 
 const filteredOptions = computed(() => {
   // Trim and de-accent search keywords and compile them as a case-insensitive regex.
@@ -95,45 +100,6 @@ const suggestedOptionLabel = computed(() => {
 
   return getSelectedOptionLabel(exactMatches[0].value)
 })
-
-const inputElementBounds = useElementBounding(inputElement)
-const isInputVisible = !!VITE_TEST_MODE || useElementVisibility(inputElement)
-const windowSize = useWindowSize()
-
-const isBelowHalfScreen = computed(() => {
-  return inputElementBounds.y.value > windowSize.height.value / 2
-})
-
-const openSelectDropdown = () => {
-  if (props.context.disabled) return
-  if (!inputElement.value) return
-
-  selectInstance.value?.openDropdown(inputElementBounds, windowSize.height)
-
-  requestAnimationFrame(() => {
-    activateTabTrap()
-    if (props.context.noFiltering) outputElement.value?.focus()
-    else filterInputElement.value?.focus()
-  })
-}
-
-onMounted(() => {
-  if (props.context.autoOpenDropdown) openSelectDropdown()
-})
-
-const openOrMoveFocusToDropdown = (lastOption = false) => {
-  if (!selectInstance.value?.isOpen) {
-    return openSelectDropdown()
-  }
-
-  deactivateTabTrap()
-
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      selectInstance.value?.moveFocusToDropdown(lastOption)
-    })
-  })
-}
 
 const onCloseDropdown = () => {
   clearFilter()
@@ -215,7 +181,7 @@ setupMissingOrDisabledOptionHandling()
         aria-haspopup="menu"
         :aria-expanded="expanded"
         :name="context.node.name"
-        class="flex grow items-center gap-2.5 px-2.5 py-2 text-black focus:outline-hidden dark:text-white formkit-disabled:pointer-events-none"
+        class="flex grow items-center gap-2.5 px-2.5 py-2 text-contrast focus:outline-hidden formkit-disabled:pointer-events-none"
         :aria-labelledby="`label-${context.id}`"
         :aria-disabled="context.disabled"
         :data-multiple="context.multiple"
@@ -247,12 +213,12 @@ setupMissingOrDisabledOptionHandling()
             role="listitem"
           >
             <div
-              class="inline-flex items-center gap-1 rounded bg-white px-1.5 py-0.5 text-xs text-black dark:bg-gray-200 dark:text-white formkit-alternative-background:bg-neutral-100 dark:formkit-alternative-background:bg-gray-200"
+              class="inline-flex items-center gap-1 rounded-sm bg-white px-1.5 py-0.5 text-xs/snug text-contrast dark:bg-gray-200 formkit-alternative-background:bg-neutral-100 dark:formkit-alternative-background:bg-gray-200"
             >
               <CommonIcon
                 v-if="getSelectedOptionIcon(selectedValue)"
                 :name="getSelectedOptionIcon(selectedValue)"
-                class="shrink-0 fill-gray-100 dark:fill-neutral-400"
+                class="shrink-0 fill-normal"
                 size="xs"
                 decorative
               />
@@ -295,7 +261,7 @@ setupMissingOrDisabledOptionHandling()
             <CommonIcon
               v-if="getSelectedOptionIcon(currentValue)"
               :name="getSelectedOptionIcon(currentValue)"
-              class="shrink-0 fill-gray-100 dark:fill-neutral-400"
+              class="shrink-0 fill-normal"
               size="tiny"
               decorative
             />

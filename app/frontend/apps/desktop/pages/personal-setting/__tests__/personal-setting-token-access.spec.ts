@@ -137,6 +137,10 @@ describe('personal settings for token access', () => {
       name: 'Delete this access token',
     })
 
+    // Deleting asks first, so the trigger is not red.
+    expect(deleteButton).toHaveClass('text-muted!')
+    expect(deleteButton).not.toHaveClass('text-red-500!')
+
     mockUserCurrentAccessTokenDeleteMutation({
       userCurrentAccessTokenDelete: {
         success: true,
@@ -238,7 +242,10 @@ describe('personal settings for token access', () => {
     await view.events.type(name, 'A new token')
 
     const input = view.getByLabelText('Expiration date')
-    await view.events.type(input, '2024-12-31{Enter}')
+    await view.events.type(input, '2024-12-31', {
+      initialSelectionStart: 0,
+      initialSelectionEnd: 0,
+    })
 
     const permissionsField = within(view.getByLabelText('Permissions'))
     const permissions = permissionsField.getAllByRole('treeitem')

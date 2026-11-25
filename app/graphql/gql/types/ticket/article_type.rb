@@ -27,8 +27,8 @@ module Gql::Types::Ticket
     field :body, String, null: false, description: 'Raw body as saved in the database.'
     field :body_with_urls, String, null: false, description: 'Body with cid: URLs replaced for inline images in HTML articles.'
     field :body_rendering_error, Boolean, null: false, description: 'True when the body could not be rendered due to HTML processing issues and contains an untranslated error message.'
+    field :body_excerpt, String, description: 'Short plain-text excerpt of the body (~50 words, cut on sentence boundaries).'
     field :internal, Boolean, null: false
-    field :detected_language, String
 
     field :preferences, ::GraphQL::Types::JSON
     field :security_state, Gql::Types::Ticket::Article::SecurityStateType
@@ -44,6 +44,16 @@ module Gql::Types::Ticket
 
     internal_fields do
       field :highlighted_texts, [Gql::Types::Ticket::Article::HighlightedTextType]
+      field :detected_language, String
+
+      # Translating is an agent action, so is knowing about translations.
+      field :translation_available, Boolean, description: 'Whether a translation into the given locale is stored for the current content of this article' do
+        argument :target_locale, String, required: false, description: 'The locale to translate into, e.g. "de-de".'
+      end
+
+      field :translation, Gql::Types::ContentTranslationType, null: true, description: 'The stored translation of the current article content' do
+        argument :target_locale, String, description: 'The locale to translate into, e.g. "de-de".'
+      end
     end
 
     belongs_to :ticket, Gql::Types::TicketType, null: false
@@ -85,7 +95,27 @@ module Gql::Types::Ticket
       end
     end
 
+    # Both batched per page and locale; without a locale there is nothing to look up.
+    def translation_available(target_locale: nil)
+      return if target_locale.blank?
+
+      load_translation(target_locale, with_content: context[:article_translation_content_locale] == target_locale).then(&:present?)
+    end
+
+    def translation(target_locale:)
+      return if !Setting.get('content_translation_service') || !Setting.get('content_translation_ticket_article')
+      return if !Pundit.policy!(context.current_user, @object).agent_read_access?
+
+      load_translation(target_locale, with_content: true)
+    end
+
     private
+
+    def load_translation(target_locale, with_content:)
+      (context[:article_translations] || {}).fetch([@object.id, target_locale]) do
+        Gql::Loaders::Ticket::ArticleTranslationLoader.for(target_locale, with_content:).load(@object)
+      end
+    end
 
     # Batched, so listing many articles of the same ticket does not cause one query per article.
     def time_accounting

@@ -9,7 +9,7 @@ export enum NotificationTypes {
   Info = 'info',
 }
 
-export type NotificationClass = NotificationTypes | 'base' | 'baseContainer' | 'message'
+export type NotificationClass = NotificationTypes | 'base' | 'baseContainer' | 'button' | 'message'
 export type NotificationClassMap = Record<NotificationClass, string>
 
 export interface Notification {
@@ -34,6 +34,11 @@ export interface Notification {
    */
   durationMS?: number
   persistent?: boolean
+  /**
+   * Survives `clearAllNotifications`, for a notification that reflects a standing condition
+   *   rather than the outcome of an action. It can still be removed by its id.
+   */
+  preserveOnClear?: boolean
   currentProgress?: number
   maxProgress?: number
   actionLabel?: string

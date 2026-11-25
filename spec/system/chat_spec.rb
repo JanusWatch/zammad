@@ -4,7 +4,7 @@ require 'rails_helper'
 
 RSpec.describe 'Chat Handling', type: :system do
   let(:agent_chat_switch_selector) { '#navigation .js-chatMenuItem .js-switch' }
-  let(:chat_url)                   { "/assets/chat/#{chat_url_type}.html?port=#{ENV['WS_PORT']}" }
+  let(:chat_url)                   { "/assets/chat/#{chat_url_type}.html?port=#{WS_PORT}" }
   let(:chat_url_type)              { 'znuny' }
 
   def authenticate
@@ -33,7 +33,24 @@ RSpec.describe 'Chat Handling', type: :system do
     wait_for_chat_topics_loaded
 
     click agent_chat_switch_selector
+    wait_for_agent_chat_active
     click 'a[href="#customer_chat"]'
+  end
+
+  # The widget asks for the agent availability right on load and removes itself
+  #   when the switch has not reached the server yet.
+  def wait_for_agent_chat_active
+    wait.until { Chat.active_agent_count(Chat.pluck(:id)).positive? }
+  end
+
+  # The demo pages give up waiting for an agent after six seconds. An accept
+  #   arriving just before is closed again by the customer, the agent window
+  #   goes offline and ChatWindow#sendMessage drops the message.
+  def keep_customer_waiting
+    page.execute_script(<<~JS)
+      chat.options.waitingListTimeout = 10;
+      chat.waitingListTimeout.options.timeout = 10;
+    JS
   end
 
   # The accept button is always present in the DOM, but Chat.coffee only marks
@@ -43,8 +60,9 @@ RSpec.describe 'Chat Handling', type: :system do
     click '.active .js-acceptChat.is-active'
   end
 
-  def open_chat_dialog
+  def open_chat_dialog(keep_waiting: true)
     expect(page).to have_css('.zammad-chat')
+    keep_customer_waiting if keep_waiting
     click '.zammad-chat .js-chat-open'
     expect(page).to have_css('.zammad-chat-is-shown')
   end
@@ -82,6 +100,7 @@ RSpec.describe 'Chat Handling', type: :system do
     # The send is deliberately clicked only once: a message that gets lost
     #   although it was present in the input is a product bug that has to
     #   surface here instead of being papered over by retyping and resending.
+    expect(page).to have_no_css('.active .chat-window.is-offline')
     click '.active .chat-window .js-send'
     expect(page).to have_css('.active .chat-window .chat-message--agent', text: message)
   end
@@ -90,6 +109,7 @@ RSpec.describe 'Chat Handling', type: :system do
     it 'check that button is hidden after idle timeout', authenticated_as: :authenticate do
       wait_for_chat_topics_loaded
       click agent_chat_switch_selector
+      wait_for_agent_chat_active
 
       using_session :customer do
         visit chat_url
@@ -214,7 +234,8 @@ RSpec.describe 'Chat Handling', type: :system do
         expect(page).to have_no_css('.zammad-chat-is-shown', visible: :all)
         expect(page).to have_no_css('.zammad-chat-is-open', visible: :all)
 
-        click '.open-zammad-chat'
+        # The button only gets its click handler once the widget knows an agent is online.
+        click '.open-zammad-chat:not(.is-inactive)'
 
         expect(page).to have_css('.zammad-chat-is-shown', visible: :all)
         expect(page).to have_css('.zammad-chat-is-open', visible: :all)
@@ -244,7 +265,7 @@ RSpec.describe 'Chat Handling', type: :system do
         refresh
 
         # No agent action, show sorry screen.
-        open_chat_dialog
+        open_chat_dialog(keep_waiting: false)
 
         check_content('.zammad-chat-modal-text', %r{(waiting|Warte)})
         check_content('.zammad-chat-modal-text', %r{(taking longer|dauert länger)})
@@ -288,6 +309,7 @@ RSpec.describe 'Chat Handling', type: :system do
   context 'when chat is activated or disabled' do
     it 'switch the chat setting', authenticated_as: :authenticate do
       visit '/#channels/chat'
+      expect(page).to have_css(agent_chat_switch_selector)
 
       click '.content.active .js-chatSetting'
 
@@ -308,9 +330,9 @@ RSpec.describe 'Chat Handling', type: :system do
 
         refresh
 
-        expect(page).to have_no_css('.zammad-chat')
-        check_content('.settings', '{"state":"chat_disabled"}', should_match: false)
         check_content('.settings', '{"event":"chat_status_customer","data":{"state":"offline"}}')
+        check_content('.settings', '{"state":"chat_disabled"}', should_match: false)
+        expect(page).to have_no_css('.zammad-chat')
       end
 
       enable_agent_chat
@@ -417,6 +439,93 @@ RSpec.describe 'Chat Handling', type: :system do
     end
   end
 
+  context 'when hovering over the waiting and chatting customers info' do
+    it 'shows the relative time of the chat session', authenticated_as: :authenticate do
+      visit '/'
+
+      enable_agent_chat
+
+      using_session :customer do
+        visit chat_url
+        open_chat_dialog
+      end
+
+      expect(page).to have_css('.active .js-waitingCustomers .js-badgeWaitingCustomers', text: '1')
+
+      find('.active .js-waitingCustomers .js-totalInfo').hover
+
+      # Bootstrap's popover sanitizer has no <time> in its allowlist and drops the
+      #   element together with its text unless the allowlist is extended.
+      expect(page).to have_css('.popover time.humanTimeFromNow', text: %r{ago|just now})
+
+      accept_chat
+
+      expect(page).to have_css('.active .js-chattingCustomers .js-badgeChattingCustomers', text: '1')
+
+      find('.active .js-chattingCustomers .js-info').hover
+
+      expect(page).to have_css('.popover time.humanTimeFromNow', text: %r{ago|just now})
+    end
+  end
+
+  context 'when renaming a chat session', authenticated_as: :authenticate do
+    let(:chat_window)     { '.active .chat-window' }
+    let(:chat_topic_name) { Chat.first.name }
+    let(:chat_session_id) { Chat::Session.last.id }
+
+    # The form has no submit button, it is sent when it gets closed again.
+    def rename_chat_session(name)
+      click "#{chat_window} .js-info"
+      find("#{chat_window} .js-metaForm input[name='name']").set(name)
+      click "#{chat_window} .js-info"
+    end
+
+    before do
+      visit '/'
+
+      enable_agent_chat
+
+      using_session :customer do
+        visit chat_url
+        open_chat_dialog
+      end
+
+      accept_chat
+    end
+
+    it 'shows the new name in the header and in the desktop notification' do
+      page.execute_script("App.Event.bind('notifyDesktop', function(data) { window.notifyDesktopTitle = data.title })")
+
+      rename_chat_session('VIP customer')
+
+      expect(page).to have_css("#{chat_window} .chat-name", text: "VIP customer ##{chat_session_id}")
+
+      using_session :customer do
+        check_content('.zammad-chat .zammad-chat-agent-status', 'Online')
+        send_customer_message('my name is customer')
+      end
+
+      check_content("#{chat_window} .chat-message--customer", 'my name is customer')
+      expect(page.evaluate_script('window.notifyDesktopTitle')).to eq('VIP customer')
+    end
+
+    it 'shows the chat topic name again after the name was cleared' do
+      rename_chat_session('VIP customer')
+
+      expect(page).to have_css("#{chat_window} .chat-name", text: "VIP customer ##{chat_session_id}")
+
+      rename_chat_session('')
+
+      expect(page).to have_css("#{chat_window} .chat-name", text: "#{chat_topic_name} ##{chat_session_id}")
+    end
+
+    it 'limits the name to the length of the database column' do
+      click "#{chat_window} .js-info"
+
+      expect(page).to have_css("#{chat_window} .js-metaForm input[name='name'][maxlength='250']")
+    end
+  end
+
   context 'when jquery variant is used' do
     before do
       visit '/'
@@ -460,13 +569,14 @@ RSpec.describe 'Chat Handling', type: :system do
       it 'is able to close to the dialog after a idleTimeout happened' do
         wait_for_chat_topics_loaded
         click agent_chat_switch_selector
+        wait_for_agent_chat_active
         using_session :customer do
 
           visit chat_url
           click '.zammad-chat .js-chat-open'
           expect(page).to have_css('.js-restart', wait: 60)
           click '.js-chat-toggle .zammad-chat-header-icon'
-          expect(page).to have_no_selector('zammad-chat-is-open', wait: 60)
+          expect(page).to have_no_css('.zammad-chat-is-open', wait: 60)
         end
       end
     end

@@ -25,7 +25,8 @@ import { getTicketByOrganizationUpdatesSubscriptionHandler } from '#desktop/enti
 
 const copyToClipboardMock = vi.fn()
 
-vi.mock('#shared/composables/useCopyToClipboard.ts', async () => ({
+vi.mock('#shared/composables/useCopyToClipboard.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('#shared/composables/useCopyToClipboard.ts')>()),
   useCopyToClipboard: () => ({ copyToClipboard: copyToClipboardMock }),
 }))
 
@@ -247,7 +248,7 @@ describe('Organization Detail View', () => {
     })
   })
 
-  describe('Object attributes', () => {
+  describe('Entity attributes', () => {
     it('displays organization attributes', async () => {
       const { main } = await visitOrganizationView()
 

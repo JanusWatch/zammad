@@ -96,8 +96,12 @@ class App.Search extends App.Controller
 
     @navupdate(url: '#search', type: 'menu')
 
+    ownNavigation = params.query? and params.query is @navigatedQuery
+    @navigatedQuery = undefined
+
     if !_.isEmpty(params.query) # When opening detailed search from the global search
-      @$('.js-search').val(params.query).trigger('keyup')
+      # The route runs on the asynchronous hashchange, so keys typed in the meantime would be overwritten.
+      @$('.js-search').val(params.query).trigger('keyup') if !ownNavigation
     else if @query # When coming back to detailed search taskbar from another taskbar
       @reloadCurrentSearch()
 
@@ -162,6 +166,7 @@ class App.Search extends App.Controller
         parent:   @
         parentEl: elLocal
         appEl:    @appEl
+        dragEnabled: => @model is 'Ticket'
         batchSuccess: =>
           @search(0, true)
       )
@@ -179,7 +184,7 @@ class App.Search extends App.Controller
       return
 
     # on other keys, show result
-    @navigate "#search/#{encodeURIComponent(@searchInput.val())}"
+    @navigateToQuery()
     @savedOrderBy = {}
     @search(0)
 
@@ -347,6 +352,7 @@ class App.Search extends App.Controller
         ticket_ids: ticket_ids
         radio:      false
         checkbox:   checkbox
+        ticketPopover: true
         orderBy:        @getSavedOrderBy()?.orderBy
         orderDirection: @getSavedOrderBy()?.orderDirection
         bindRow:
@@ -357,6 +363,7 @@ class App.Search extends App.Controller
             'click': callbackCheckbox
           select_all: callbackCheckbox
         sortClickCallback: @saveOrderBy
+        callbackHeader: [ @markRelationHeadersUnsortable ]
         pagerAjax:    true
       )
 
@@ -419,6 +426,7 @@ class App.Search extends App.Controller
           events:
             'click': openObject
         sortClickCallback: @saveOrderBy
+        callbackHeader: [ @markRelationHeadersUnsortable ]
         pagerEnabled: false
         orderEnabled: false
         pagerAjax: true
@@ -464,9 +472,11 @@ class App.Search extends App.Controller
     newColumn = $(e.currentTarget).closest('[data-column-key]').attr('data-column-key')
 
     config = _.find App[@model].configure_attributes, (elem) -> elem.name == newColumn
+    return if !config
 
-    # There's no reliable way to sort to-many relations. Sorry.
-    return if config.multiple && config.relation
+    # Search results are sorted by Elasticsearch, which can only sort a relation by
+    # its raw reference (e.g. customer_id) and not by the displayed name.
+    return if config.relation
 
     current = @getSavedOrderBy()
 
@@ -510,8 +520,13 @@ class App.Search extends App.Controller
     @updateFilledClass()
     @resultPaginated = {}
     @savedOrderBy = {}
-    @navigate "#search/#{encodeURIComponent(@searchInput.val())}"
+    @navigateToQuery()
     @search(0)
+
+  navigateToQuery: =>
+    url = "#search/#{encodeURIComponent(@searchInput.val())}"
+    @navigatedQuery = @searchInput.val() if url isnt window.location.hash
+    @navigate url
 
   updateFilledClass: ->
     @searchInput.toggleClass 'is-empty', !@searchInput.val()
@@ -529,6 +544,11 @@ class App.Search extends App.Controller
 
   getSavedOrderBy: =>
     @savedOrderBy[@model]
+
+  markRelationHeadersUnsortable: (headers) ->
+    for header in headers when header.relation
+      header.unsortable = true
+    headers
 
   saveOrderBy: (table) =>
     return if !table

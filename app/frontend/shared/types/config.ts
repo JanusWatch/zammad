@@ -13,6 +13,7 @@ export interface ConfigList {
   ai_assistance_ticket_summary_config: unknown
   ai_assistance_ticket_summary_selector: unknown
   ai_provider: boolean
+  alternative_fqdn: string
   api_password_access?: boolean | null
   api_token_access?: boolean | null
   auth_facebook?: boolean | null
@@ -29,10 +30,23 @@ export interface ConfigList {
   chat?: boolean | null
   chat_agent_idle_timeout: string
   checklist?: boolean | null
+  content_translation_service: boolean
+  content_translation_ticket_article: boolean
+  content_translation_ticket_article_auto: boolean
   core_workflow_ajax_mode?: boolean | null
   cti_integration?: boolean | null
   customer_ticket_create?: boolean | null
   customer_ticket_create_group_ids: unknown
+  dashboard: boolean
+  dashboard_activity_stream: boolean
+  dashboard_activity_stream_own: boolean
+  dashboard_first_steps: boolean
+  dashboard_stats_ticket_channel_distribution: boolean
+  dashboard_stats_ticket_escalation: boolean
+  dashboard_stats_ticket_in_process: boolean
+  dashboard_stats_ticket_load_measure: boolean
+  dashboard_stats_ticket_reopen: boolean
+  dashboard_stats_ticket_waiting_time: boolean
   datepicker_show_calendar_weeks?: boolean | null
   default_controller: string
   defaults_calendar_subscriptions_tickets: unknown
@@ -49,6 +63,7 @@ export interface ConfigList {
   kb_active_publicly: boolean
   kb_multi_lingual_support: boolean
   kb_self_hosted_video_servers: unknown
+  language_detection_article?: '' | 'cld' | null
   ldap_integration?: boolean | null
   locale_default: string
   maintenance_login: boolean
@@ -179,6 +194,7 @@ export interface ConfigList {
   system_init_done: boolean
   system_online_service: boolean
   tag_new?: boolean | null
+  third_party_login_auto_redirect?: boolean | null
   ticket_agent_default_notifications: unknown
   ticket_allow_expert_conditions?: boolean | null
   ticket_auto_assignment?: boolean | null
@@ -237,6 +253,7 @@ export interface ConfigList {
   user_name_format: 'first_last' | 'last_first' | 'last_first_comma'
   user_show_password_login?: boolean | null
   vectordb_enabled: boolean
+  web_push_vapid_public_key: string
   websocket_backend: string
   websocket_port: string
   // This is also required for packages (addons) in docker environments, as their settings cannot be part of this generated file (no database at image build time).

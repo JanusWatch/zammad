@@ -1,16 +1,19 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
+import { getByIconName } from '#tests/support/components/iconQueries.ts'
 import { visitView } from '#tests/support/components/visitView.ts'
 import { mockPermissions } from '#tests/support/mock-permissions.ts'
 import { mockUserCurrent } from '#tests/support/mock-userCurrent.ts'
 import { waitForNextTick } from '#tests/support/utils.ts'
 
 import { mockFormUpdaterQuery } from '#shared/components/Form/graphql/queries/formUpdater.mocks.ts'
-import { mockCurrentUserQuery } from '#shared/graphql/queries/currentUser.mocks.ts'
 import { EnumFormUpdaterId, EnumNotificationSoundFile } from '#shared/graphql/types.ts'
 import { convertToGraphQLId } from '#shared/graphql/utils.ts'
 
-import { waitForUserCurrentNotificationPreferencesResetMutationCalls } from '#desktop/pages/personal-setting/graphql/mutations/userCurrentNotificationPreferencesReset.mocks.ts'
+import {
+  mockUserCurrentNotificationPreferencesResetMutation,
+  waitForUserCurrentNotificationPreferencesResetMutationCalls,
+} from '#desktop/pages/personal-setting/graphql/mutations/userCurrentNotificationPreferencesReset.mocks.ts'
 import {
   mockUserCurrentNotificationPreferencesUpdateMutation,
   waitForUserCurrentNotificationPreferencesUpdateMutationCalls,
@@ -144,30 +147,65 @@ describe('personal notifications settings', () => {
     expect(view.queryByText('User groups')).not.toBeInTheDocument()
   })
 
-  it('resets values to default', async () => {
+  it('plays a preview of the selected notification sound', async () => {
     mockUserCurrent({
       ...mockUser(),
       ...mockPersonalSettings(),
     })
 
-    const playSound = vi.fn()
-    // Set up a mock for playing sound effects in a test environment
-    // This is necessary because the audio API is not available in the test environment
-    window.HTMLMediaElement.prototype.play = () => playSound()
+    // jsdom does not implement the audio playback API.
+    const play = vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue()
 
     const view = await visitView('personal-setting/notifications')
 
     await view.events.click(view.getByLabelText('Notification sound'))
-
     await view.events.click(view.getByText('Plop'))
 
-    const checkboxes = view.getAllByTestId('checkbox-label')
+    expect(play).toHaveBeenCalled()
+  })
 
-    await view.events.click(checkboxes.at(-1)!)
+  it('resets values to default', async () => {
+    const { personalSettings } = mockPersonalSettings()
+
+    mockUserCurrent({
+      ...mockUser(),
+      personalSettings: {
+        ...personalSettings,
+        notificationSound: {
+          enabled: false,
+          file: EnumNotificationSoundFile.Plop,
+        },
+      },
+    })
+
+    const view = await visitView('personal-setting/notifications')
 
     expect((view.getByLabelText('Notification sound') as HTMLInputElement).value).toEqual('Plop')
+    expect(view.getByLabelText('Play user interface sound effects')).not.toBeChecked()
+    expect(view.getByText('Testers Group')).toBeInTheDocument()
 
-    await view.events.click(view.getByRole('button', { name: 'Reset to default settings' }))
+    // Group limit and sound settings are removed on reset, so the defaults apply.
+    mockUserCurrentNotificationPreferencesResetMutation({
+      userCurrentNotificationPreferencesReset: {
+        user: {
+          ...mockUser(),
+          personalSettings: {
+            notificationConfig: { ...personalSettings.notificationConfig, groupIds: null },
+            notificationSound: null,
+          },
+        },
+        errors: null,
+      },
+    })
+
+    // The trigger only opens the dialog, so it is not red; the confirm button inside is.
+    const resetButton = view.getByRole('button', { name: 'Reset to defaults' })
+
+    expect(resetButton).toHaveClass('bg-green-200')
+    expect(resetButton).not.toHaveClass('bg-pink-100')
+    expect(getByIconName(resetButton, 'arrow-counterclockwise')).toBeInTheDocument()
+
+    await view.events.click(resetButton)
 
     expect(await view.findByRole('dialog', { name: 'Confirmation' })).toBeInTheDocument()
 
@@ -175,23 +213,21 @@ describe('personal notifications settings', () => {
       view.getByText('Are you sure? Your notifications settings will be reset to default.'),
     ).toBeInTheDocument()
 
-    await view.events.click(view.getByRole('button', { name: 'Yes' }))
+    const confirmButton = view.getByRole('button', { name: 'Yes' })
+
+    expect(confirmButton).toHaveClass('bg-pink-100')
+
+    await view.events.click(confirmButton)
 
     const mocks = await waitForUserCurrentNotificationPreferencesResetMutationCalls()
 
     expect(mocks.at(-1)?.variables).toEqual({})
 
-    mockCurrentUserQuery({
-      currentUser: {
-        ...mockUser(),
-        ...mockPersonalSettings(),
-      },
-    })
-
     await waitForNextTick()
 
-    expect(playSound).toHaveBeenCalled()
-    expect(checkboxes.at(-1)).toBeEnabled()
+    expect((view.getByLabelText('Notification sound') as HTMLInputElement).value).toEqual('Xylo')
+    expect(view.getByLabelText('Play user interface sound effects')).toBeChecked()
+    expect(view.queryByText('Testers Group')).not.toBeInTheDocument()
   })
 
   it('submits notification form successfully', async () => {
@@ -216,7 +252,7 @@ describe('personal notifications settings', () => {
       },
     })
 
-    await view.events.click(view.getByRole('button', { name: 'Save notifications' }))
+    await view.events.click(view.getByRole('button', { name: 'Save changes' }))
 
     const previousMockedData = mockPersonalSettings()
 

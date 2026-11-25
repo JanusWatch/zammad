@@ -12,7 +12,7 @@ import { waitUntil } from '#tests/support/vitest-wrapper.ts'
 
 import { mockFormUpdaterQuery } from '#shared/components/Form/graphql/queries/formUpdater.mocks.ts'
 import useMetaTitle from '#shared/composables/useMetaTitle.ts'
-import { mockObjectManagerFrontendAttributesQuery } from '#shared/entities/object-attributes/graphql/queries/objectManagerFrontendAttributes.mocks.ts'
+import { mockObjectManagerFrontendAttributesQuery } from '#shared/entities/core/attributes/graphql/queries/objectManagerFrontendAttributes.mocks.ts'
 import { createDummyTicket } from '#shared/entities/ticket-article/__tests__/mocks/ticket.ts'
 import { EnumSearchableModels, type Ticket } from '#shared/graphql/types.ts'
 import { convertToGraphQLId } from '#shared/graphql/utils.ts'
@@ -54,14 +54,6 @@ const visitSearchViewWithTicketTitleFilterAndNoSearchTerm = async (value: string
 let ticket: Ticket
 
 describe('search view', () => {
-  beforeEach(() => {
-    // Without this, `application.config.ui_task_mananger_max_task_count` is
-    // `undefined` in tests, which breaks the taskbar's max-open-tabs guard
-    // (`length <= undefined` is always `false`) and causes it to evict the
-    // search view's own taskbar tab under load, see #taskbarTabs.ts.
-    mockApplicationConfig({ ui_task_mananger_max_task_count: 30 })
-  })
-
   describe('agent user', () => {
     beforeEach(() => {
       mockPermissions(['ticket.agent'])
@@ -164,6 +156,80 @@ describe('search view', () => {
       })
     })
 
+    it('lets a foreign route change win over a term the user is still typing', async () => {
+      const { searchContainer, view } = await visitSearchView()
+
+      await waitForDetailSearchQueryCalls()
+
+      const searchInput = within(searchContainer).getByRole('searchbox', { name: 'Search…' })
+      const router = getTestRouter()
+
+      await view.events.type(searchInput, 'ing')
+
+      // Deep link, browser history or cross-tab sync, arriving while the typed
+      // term is still waiting for the debounce.
+      await router.replace('/search/foreign?entity=Ticket')
+
+      await waitFor(() => expect(searchInput).toHaveDisplayValue('foreign'))
+
+      // The pending push must be dropped, not navigate on top of it.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 800)
+      })
+
+      expect(router.currentRoute.value.fullPath).toBe('/search/foreign?entity=Ticket')
+    })
+
+    it('lets a foreign entity switch win over a pending push for the same term', async () => {
+      const { searchContainer, view } = await visitSearchView()
+
+      await waitForDetailSearchQueryCalls()
+
+      const searchInput = within(searchContainer).getByRole('searchbox', { name: 'Search…' })
+      const router = getTestRouter()
+
+      // Hold the push for 'testing', so the foreign change below lands while it
+      // is still in flight.
+      let releaseNavigation: (() => void) | undefined
+      const removeGuard = router.beforeEach(async (to) => {
+        if (
+          to.params.searchTerm !== 'testing' ||
+          to.query.entity === EnumSearchableModels.Organization
+        )
+          return true
+
+        await new Promise<void>((resolve) => {
+          releaseNavigation = resolve
+        })
+
+        return true
+      })
+
+      await view.events.type(searchInput, 'ing')
+
+      await waitFor(() => expect(releaseNavigation).toBeDefined())
+
+      await view.events.type(searchInput, 'x')
+
+      // Cross-tab sync reusing the term we just pushed, but on another entity:
+      // same term, different route - so it is no echo of ours.
+      await router.replace(`/search/testing?entity=${EnumSearchableModels.Organization}`)
+
+      releaseNavigation?.()
+
+      await waitFor(() => expect(searchInput).toHaveDisplayValue('testing'))
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 800)
+      })
+
+      expect(router.currentRoute.value.fullPath).toBe(
+        `/search/testing?entity=${EnumSearchableModels.Organization}`,
+      )
+
+      removeGuard()
+    })
+
     it('selects a ticket for bulk edit', async () => {
       mockFormUpdaterQuery({
         formUpdater: {
@@ -219,9 +285,12 @@ describe('search view', () => {
 
       const ticketState = await view.findByLabelText('State')
 
+      // The Group field is autofocused, so its dropdown opens by itself.
+      await view.findByRole('menu')
+
       await view.events.click(ticketState)
 
-      expect(await view.findByRole('menu')).toBeInTheDocument()
+      expect(await view.findByRole('option', { name: 'closed' })).toBeInTheDocument()
 
       await view.events.click(view.getByRole('option', { name: 'closed' }))
 
@@ -326,6 +395,27 @@ describe('search view', () => {
           }),
         ).not.toBeInTheDocument(),
       )
+    })
+
+    it('does not offer sorting for relation columns', async () => {
+      mockObjectManagerFrontendAttributesQuery({
+        objectManagerFrontendAttributes: ticketObjectAttributes(),
+      })
+
+      const { view } = await visitSearchView()
+
+      expect(
+        await view.findByRole('button', { name: 'Sort by Title ascending' }),
+      ).toBeInTheDocument()
+
+      // The columns are rendered, they just don't offer sorting: Elasticsearch can
+      // only sort them by the raw reference and not by the displayed value.
+      const relationColumns = ['Customer', 'Group', 'Owner']
+
+      relationColumns.forEach((column) => {
+        expect(view.getByRole('columnheader', { name: column })).toBeInTheDocument()
+        expect(view.queryByRole('button', { name: `Sort by ${column} ascending` })).toBeNull()
+      })
     })
 
     describe('advanced search filters', () => {
@@ -589,10 +679,7 @@ describe('search view', () => {
   describe('knowledge base answers', () => {
     beforeEach(() => {
       mockPermissions(['ticket.agent', 'knowledge_base.reader'])
-      mockApplicationConfig({
-        ui_task_mananger_max_task_count: 30,
-        kb_active: true,
-      })
+      mockApplicationConfig({ kb_active: true })
 
       // Empty on purpose: this file checks the tab, the query and the controls around it. Rendering
       //   the rows is `KnowledgeBaseAnswerTable.spec.ts`'s job, and one detail-search mock answers

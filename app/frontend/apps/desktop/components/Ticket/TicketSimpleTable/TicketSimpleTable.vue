@@ -4,6 +4,7 @@
 import { computed, toRef } from 'vue'
 
 import type { TicketById } from '#shared/entities/ticket/types.ts'
+import { isSystemUser } from '#shared/entities/user/utils/isSystemUser.ts'
 import { useApplicationStore } from '#shared/stores/application.ts'
 
 import CommonSimpleTable from '#desktop/components/CommonTable/CommonSimpleTable.vue'
@@ -42,7 +43,9 @@ const props = defineProps<Props>()
 const items = computed<Array<TableItem>>(() =>
   props.tickets.map((ticket) => ({
     createdAt: ticket.createdAt,
-    customer: ticket.organization?.name || ticket.customer?.fullname,
+    customer:
+      ticket.organization?.name ||
+      (isSystemUser(ticket.customer) ? '-' : ticket.customer?.fullname),
     group: ticket.group?.name,
     id: ticket.id,
     internalId: ticket.internalId,
@@ -80,8 +83,8 @@ const handleRowClick = (row: TableItem) => {
     >
       <template #column-cell-createdAt="{ item, isRowSelected }">
         <CommonDateTime
-          class="text-gray-100 group-hover:text-black group-focus-visible:text-white group-active:text-white dark:text-neutral-400 group-hover:dark:text-white group-active:dark:text-white"
-          :class="{ 'text-black dark:text-white': isRowSelected }"
+          class="text-normal group-hover:text-contrast group-focus-visible:text-white group-active:text-white group-active:dark:text-white"
+          :class="{ 'text-white!': isRowSelected }"
           :date-time="item['createdAt'] as string"
           type="absolute"
           absolute-format="date"
@@ -90,9 +93,9 @@ const handleRowClick = (row: TableItem) => {
 
       <template #column-cell-state="{ item, isRowSelected }">
         <CommonTicketStateIndicatorIcon
-          class="shrink-0 group-hover:text-black group-focus-visible:text-white group-active:text-white group-hover:dark:text-white group-active:dark:text-white"
+          class="shrink-0 group-hover:text-contrast group-focus-visible:text-white group-active:text-white group-active:dark:text-white"
           :class="{
-            'ltr:text-black rtl:text-black dark:text-white': isRowSelected,
+            'text-white!': isRowSelected,
           }"
           :color-code="(item as TicketById).stateColorCode"
           :label="(item as TicketById).state.name"

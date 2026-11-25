@@ -48,8 +48,17 @@ RSpec.describe Gql::Mutations::KnowledgeBase::Answer::Suggestion::Content::Trans
       let(:copied_inline_attachments)   { copied_attachments.select(&:inline?) }
       let(:copied_attached_attachments) { copied_attachments.reject(&:inline?) }
 
-      it 'converts inline images to base64 data' do
+      it 'points inline images to the copied attachments' do
         expect(gql.result.data[:body]).to include("src=\"/api/v1/attachments/#{copied_inline_attachments.first.id}")
+      end
+
+      context 'with an embedded video' do
+        let(:knowledge_base_answer) { create(:knowledge_base_answer, :published, :with_video) }
+
+        it 'replaces the video marker with a link to the video', :aggregate_failures do
+          expect(gql.result.data[:body]).to include("<a href='https://www.youtube.com/watch?v=vTTzwJsHpU8'>")
+          expect(gql.result.data[:body]).not_to include('widget: video')
+        end
       end
 
       it 'contains attachments' do
@@ -61,6 +70,65 @@ RSpec.describe Gql::Mutations::KnowledgeBase::Answer::Suggestion::Content::Trans
                                                                type:        attachment.preferences['Content-Type'],
                                                                preferences: attachment.preferences,
                                                              ))
+      end
+
+      context 'with a link to another answer' do
+        let(:target_translation)    { create(:knowledge_base_answer, :published).translation }
+        let(:target_id)             { target_translation.id }
+        let(:knowledge_base_answer) do
+          create(:knowledge_base_answer, :published, translation_attributes: {
+                   content: build(:knowledge_base_answer_translation_content, body: "<a href='/desktop/knowledge-base/locale/en-us/answer/1' data-target-type='knowledge-base-answer' data-target-id='#{target_id}'>See also</a>")
+                 })
+        end
+
+        it 'turns the link into an ordinary one to the public answer page' do
+          expect(gql.result.data[:body]).to eq("<a href=\"#{target_translation.public_url}\">See also</a>")
+        end
+
+        context 'when the target answer does not exist' do
+          let(:target_id) { 0 }
+
+          it 'replaces the link by its text', :aggregate_failures do
+            expect(gql.result.data[:body]).to include('See also')
+            expect(gql.result.data[:body]).not_to include('<a')
+          end
+        end
+
+        context 'when the target answer is not public' do
+          let(:agent_url) { "#{Setting.get('http_type')}://#{Setting.get('fqdn')}/desktop/knowledge-base/locale/en-us/answer/#{target_translation.answer_id}" }
+
+          shared_examples 'linking to the answer in the desktop app' do
+            it 'turns the link into an ordinary absolute one to the answer in the desktop app' do
+              expect(gql.result.data[:body]).to eq("<a href=\"#{agent_url}\">See also</a>")
+            end
+          end
+
+          context 'with an internal answer' do
+            let(:target_translation) { create(:knowledge_base_answer, :internal).translation }
+
+            it_behaves_like 'linking to the answer in the desktop app'
+          end
+
+          context 'with a draft answer' do
+            let(:target_translation) { create(:knowledge_base_answer, :draft).translation }
+
+            it_behaves_like 'linking to the answer in the desktop app'
+          end
+
+          context 'with an archived answer' do
+            let(:target_translation) { create(:knowledge_base_answer, :published, :archived).translation }
+
+            it_behaves_like 'linking to the answer in the desktop app'
+          end
+
+          context 'with a published answer of an inactive knowledge base' do
+            let(:target_translation) do
+              create(:knowledge_base_answer, :published, knowledge_base: create(:knowledge_base, active: false)).translation
+            end
+
+            it_behaves_like 'linking to the answer in the desktop app'
+          end
+        end
       end
 
       context 'with not existing translation' do
@@ -95,7 +163,7 @@ RSpec.describe Gql::Mutations::KnowledgeBase::Answer::Suggestion::Content::Trans
       end
     end
 
-    context 'without authenticated session', authenticated_as: :customer do
+    context 'with a customer', authenticated_as: :customer do
       it 'fails with error type' do
         expect(gql.result.error_type).to eq(Exceptions::Forbidden)
       end

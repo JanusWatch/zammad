@@ -118,13 +118,13 @@ RSpec.describe 'Ticket zoom > Taskbar', type: :system do
     context 'Tab behaviour - Close tab on ticket close' do
       it 'does not close the tab without any action' do
         click '.js-submit'
-        expect(current_url).to include('ticket/zoom')
+        expect(page).to have_current_path(%r{ticket/zoom}, url: true)
       end
 
       it 'does close the tab on ticket close' do
         select 'closed', from: 'State'
         click '.js-submit'
-        expect(current_url).not_to include('ticket/zoom')
+        expect(page).to have_no_current_path(%r{ticket/zoom}, url: true)
       end
     end
 
@@ -136,13 +136,13 @@ RSpec.describe 'Ticket zoom > Taskbar', type: :system do
 
       it 'does not close the tab without any action' do
         click '.js-submit'
-        expect(current_url).to include('ticket/zoom')
+        expect(page).to have_current_path(%r{ticket/zoom}, url: true)
       end
 
       it 'does not close the tab on ticket close' do
         select 'closed', from: 'State'
         click '.js-submit'
-        expect(current_url).to include('ticket/zoom')
+        expect(page).to have_current_path(%r{ticket/zoom}, url: true)
       end
     end
 
@@ -154,13 +154,13 @@ RSpec.describe 'Ticket zoom > Taskbar', type: :system do
 
       it 'does close the tab without any action' do
         click '.js-submit'
-        expect(current_url).not_to include('ticket/zoom')
+        expect(page).to have_no_current_path(%r{ticket/zoom}, url: true)
       end
 
       it 'does close the tab on ticket close' do
         select 'closed', from: 'State'
         click '.js-submit'
-        expect(current_url).not_to include('ticket/zoom')
+        expect(page).to have_no_current_path(%r{ticket/zoom}, url: true)
       end
     end
 
@@ -183,11 +183,11 @@ RSpec.describe 'Ticket zoom > Taskbar', type: :system do
 
       it 'does change the tab without any action' do
         click_on ticket1.title
-        expect(current_url).to include("ticket/zoom/#{ticket1.id}")
+        expect(page).to have_current_path(%r{ticket/zoom/#{ticket1.id}}, url: true)
         click '.js-submit'
-        expect(current_url).to include("ticket/zoom/#{ticket2.id}")
+        expect(page).to have_current_path(%r{ticket/zoom/#{ticket2.id}}, url: true)
         click '.js-submit'
-        expect(current_url).to include("ticket/zoom/#{ticket3.id}")
+        expect(page).to have_current_path(%r{ticket/zoom/#{ticket3.id}}, url: true)
       end
 
       # Ported from test/browser/agent_ticket_overview_tab_test.rb: closing the
@@ -195,14 +195,14 @@ RSpec.describe 'Ticket zoom > Taskbar', type: :system do
       #   accumulating tabs.
       it 'does replace the task with the next overview ticket on ticket close' do
         click_on ticket1.title
-        expect(current_url).to include("ticket/zoom/#{ticket1.id}")
+        expect(page).to have_current_path(%r{ticket/zoom/#{ticket1.id}}, url: true)
 
         within(:active_content) do
           select 'closed', from: 'State'
           click '.js-submit'
         end
 
-        expect(current_url).to include("ticket/zoom/#{ticket2.id}")
+        expect(page).to have_current_path(%r{ticket/zoom/#{ticket2.id}}, url: true)
         expect(page).to have_css('.tasks .task.is-active', text: ticket2.title)
 
         # The closed ticket's task was replaced, not kept as an additional tab.
@@ -259,6 +259,9 @@ RSpec.describe 'Ticket zoom > Taskbar', type: :system do
 
     it 'does not show the discard button nor the confirmation dialog' do
       within(:active_content) do
+        expect(page).to have_select('state_id')
+        wait.until { page.evaluate_script("Object.values(App.Delay._all()).every(function(level) { return !('ticket-zoom-form-update' in level) })") }
+        await_empty_ajax_queue
         expect(page).to have_no_css('.js-reset')
       end
 
@@ -305,6 +308,8 @@ RSpec.describe 'Ticket zoom > Taskbar', type: :system do
         visit '#dashboard'
         refresh
       end
+      expect(page).to have_css("#navigation [data-key='Ticket-#{Ticket.first.id}']")
+      await_empty_ajax_queue
       expect(page).to have_no_css('#navigation .icon-status-modified-inner-circle')
       sleep 2
 

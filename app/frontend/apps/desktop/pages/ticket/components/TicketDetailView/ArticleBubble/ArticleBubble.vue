@@ -9,6 +9,7 @@ import type { TicketArticle } from '#shared/entities/ticket/types.ts'
 import { EnumTicketArticleSenderName } from '#shared/graphql/types.ts'
 
 import UserPopoverWithTrigger from '#desktop/components/User/UserPopoverWithTrigger.vue'
+import { useBubbleStyleGuide } from '#desktop/composables/useBubbleStyleGuide.ts'
 import { useFilePreviewViewer, type ViewerFile } from '#desktop/composables/useFilePreviewViewer.ts'
 import ArticleBubbleActionList from '#desktop/pages/ticket/components/TicketDetailView/ArticleBubble/ArticleBubbleActionList.vue'
 import ArticleBubbleBlockedContentWarning from '#desktop/pages/ticket/components/TicketDetailView/ArticleBubble/ArticleBubbleBlockedContentWarning.vue'
@@ -18,7 +19,6 @@ import ArticleBubbleMediaError from '#desktop/pages/ticket/components/TicketDeta
 import ArticleBubbleSecurityStatusBar from '#desktop/pages/ticket/components/TicketDetailView/ArticleBubble/ArticleBubbleSecurityStatusBar.vue'
 import ArticleBubbleSecurityWarning from '#desktop/pages/ticket/components/TicketDetailView/ArticleBubble/ArticleBubbleSecurityWarning.vue'
 import { useBubbleHeader } from '#desktop/pages/ticket/components/TicketDetailView/ArticleBubble/useBubbleHeader.ts'
-import { useBubbleStyleGuide } from '#desktop/pages/ticket/components/TicketDetailView/ArticleBubble/useBubbleStyleGuide.ts'
 import ArticleReactionBadge from '#desktop/pages/ticket/components/TicketDetailView/ArticleReactionBadge.vue'
 
 const ArticleBubbleHeader = defineAsyncComponent(
@@ -32,11 +32,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const { showMetaInformation, toggleHeader } = useBubbleHeader()
-
-const toggleHeaderFromKeyboard = () => {
-  toggleHeader(new MouseEvent('click'))
-}
+const { showMetaInformation, toggle, toggleHeader } = useBubbleHeader()
 
 const metaInformationRegionId = computed(
   () => `article-meta-information-${props.article.internalId}`,
@@ -172,8 +168,8 @@ const { hasReducedMotion } = useReducedMotion()
           :aria-label="$t('Toggle article meta information')"
           :aria-expanded="showMetaInformation"
           :aria-controls="metaInformationRegionId"
-          @keydown.enter.prevent="toggleHeaderFromKeyboard"
-          @keydown.space.prevent="toggleHeaderFromKeyboard"
+          @keydown.enter.prevent="toggle"
+          @keydown.space.prevent="toggle"
         />
 
         <ArticleBubbleBody

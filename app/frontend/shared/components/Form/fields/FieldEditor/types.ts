@@ -13,7 +13,7 @@ import type { ImageFileData } from '#shared/utils/files.ts'
 
 import type { FormKitEvent } from '@formkit/core'
 import type { Except } from 'type-fest'
-import type { Component } from 'vue'
+import type { Component, Ref } from 'vue'
 
 export interface PossibleSignature {
   position?: number
@@ -36,6 +36,7 @@ declare module '@tiptap/core' {
       openUserMention: () => ReturnType
       openTextMention: () => ReturnType
       openKnowledgeBaseMention: () => ReturnType
+      insertKnowledgeBaseAnswer: (translationId: ID) => ReturnType
     }
     images: {
       setImages(images: ImageFileData[]): ReturnType
@@ -62,6 +63,21 @@ export type MentionKnowledgeBaseItem = ConfidentTake<
   'knowledgeBaseAnswerSuggestions'
 >[number]
 
+export type MentionKnowledgeBaseRelatedAnswer = Omit<MentionKnowledgeBaseItem, '__typename'>
+
+export type MentionKnowledgeBaseRelatedSection = 'linked' | 'suggested'
+
+// An entry of the list offered before a search term is typed.
+export interface MentionKnowledgeBaseRelatedItem extends MentionKnowledgeBaseRelatedAnswer {
+  section: MentionKnowledgeBaseRelatedSection
+}
+
+export interface MentionKnowledgeBaseRelatedAnswers {
+  linked: MentionKnowledgeBaseRelatedAnswer[]
+  // Never contains a linked answer, and stays empty until the suggestions are ready.
+  suggested: MentionKnowledgeBaseRelatedAnswer[]
+}
+
 export type MentionTextItem = ConfidentTake<
   TextModuleSuggestionsQuery,
   'textModuleSuggestions'
@@ -75,6 +91,8 @@ export interface FieldEditorContext {
   removeSignature(): void
   focus(): void
   getEditorValue(type: EditorContentType): string
+  // Only offered by editors with the knowledge base mention (`??`).
+  insertKnowledgeBaseAnswer?(translationId: ID): void
   signature?: Pick<PossibleSignature, 'internalId' | 'renderedBody'> | null
   signatureEnabled?: boolean
 }
@@ -130,6 +148,9 @@ export interface FieldEditorProps {
       disabled?: boolean
       // where to put attachments from knowledge base, if any are available
       attachmentsNodeName?: string
+      // answers related to the record being edited, offered before a search term is typed;
+      //   a getter, because the reactive field context would unwrap a ref
+      relatedAnswers?: () => MentionKnowledgeBaseRelatedAnswers
     }
     mentionUser?: {
       disabled?: boolean
@@ -160,6 +181,7 @@ export type EditorCustomExtensions = keyof ConfidentTake<FieldEditorProps, 'meta
 declare module '@tiptap/vue-3' {
   interface EditorEvents {
     'cancel-ai-assistant-text-tools-updates': void
+    'inline-images-replaced': void
     'toggle-visibility': {
       name: string
       active: boolean
@@ -169,7 +191,9 @@ declare module '@tiptap/vue-3' {
 
 declare module '@tiptap/core' {
   interface Storage {
-    showAiTextLoader: boolean
+    [TEXT_TOOL_EXTENSION_NAME]: {
+      showAiTextLoader: Ref<boolean>
+    }
   }
 }
 

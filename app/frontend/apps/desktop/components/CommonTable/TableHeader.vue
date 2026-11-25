@@ -20,6 +20,7 @@ import { EnumOrderDirection } from '#shared/graphql/types.ts'
 import { i18n } from '#shared/i18n/index.ts'
 
 import CommonButton from '#desktop/components/CommonButton/CommonButton.vue'
+import { useKeepAliveHooks } from '#desktop/composables/useKeepAliveHooks.ts'
 
 import BulkCheckbox from './CellContent/BulkCheckbox.vue'
 import HeaderResizeLine from './HeaderResizeLine.vue'
@@ -119,9 +120,11 @@ const setHeaderWidths = (reset?: boolean) => {
 
     const headerWidthRelative = headerWidthsRelativeStorage.value[tableAttribute.name]
 
+    const minimumWidth = tableAttribute.headerPreferences?.minimumWidth ?? MINIMUM_COLUMN_WIDTH
+
     const headerWidth =
       tableAttribute.headerPreferences?.displayWidth ??
-      Math.max(MINIMUM_COLUMN_WIDTH, headerWidthRelative * tableWidth)
+      Math.max(minimumWidth, headerWidthRelative * tableWidth)
 
     header.style.width = `${headerWidth}px`
   })
@@ -292,6 +295,10 @@ onMounted(() => {
 useEventListener('resize', () => initializeHeaderWidths())
 
 useOnEmitter('primary-sidebar-transition', () => initializeHeaderWidths())
+
+useKeepAliveHooks({
+  onReactivated: initializeHeaderWidths,
+})
 </script>
 
 <template>
@@ -355,14 +362,13 @@ useOnEmitter('primary-sidebar-transition', () => initializeHeaderWidths())
               "
             >
               <CommonLabel
-                class="relative block! truncate font-normal text-gray-100! select-none dark:text-neutral-400!"
+                class="relative block! truncate font-normal text-normal! select-none"
                 :class="[
                   tableAttribute.headerPreferences?.labelClass,
                   {
                     'sr-only': tableAttribute.headerPreferences?.hideLabel,
-                    'text-black! dark:text-white!': isSorted(tableAttribute.name),
-                    'hover:text-black! dark:hover:text-white!':
-                      !tableAttribute.headerPreferences?.noSorting,
+                    'text-contrast!': isSorted(tableAttribute.name),
+                    'hover:text-contrast!': !tableAttribute.headerPreferences?.noSorting,
                   },
                 ]"
                 size="small"
@@ -384,14 +390,13 @@ useOnEmitter('primary-sidebar-transition', () => initializeHeaderWidths())
 
         <HeaderResizeLine
           v-if="!tableAttribute.headerPreferences?.noResize && index !== tableAttributes.length - 1"
+          :minimum-width="tableAttribute.headerPreferences?.minimumWidth ?? MINIMUM_COLUMN_WIDTH"
           @resize="calculateHeaderWidths"
           @reset="resetHeaderWidths"
         />
       </th>
       <th v-if="actions" id="actions-header" scope="col" class="h-10 w-0 p-2.5 text-center">
-        <CommonLabel class="font-normal text-stone-200! dark:text-neutral-500!" size="small"
-          >{{ $t('Actions') }}
-        </CommonLabel>
+        <CommonLabel class="font-normal text-muted!" size="small">{{ $t('Actions') }} </CommonLabel>
       </th>
     </tr>
     <tr v-if="selectAllLoadedActive && !hasLoadedAllItems" data-test-id="tableMetaHeader">

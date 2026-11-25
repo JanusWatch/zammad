@@ -270,6 +270,11 @@ RSpec.describe User, type: :model do
   it_behaves_like 'User::HasTwoFactor'
 
   describe 'adding a group' do
+    # the group associations are only part of the attributes for privileged callers
+    around do |example|
+      UserInfo.with_system_context { example.run }
+    end
+
     it 'invalidates the association ID cache for both the user and the group' do
       agent = create(:agent)
       group = create(:group)
@@ -281,6 +286,32 @@ RSpec.describe User, type: :model do
   end
 
   describe 'Class methods:' do
+    describe '.create_from_hash!' do
+      let(:auth_hash) do
+        {
+          'provider' => 'openid_connect',
+          'uid'      => SecureRandom.uuid,
+          'login'    => 'oidc-user',
+          'info'     => { 'email' => 'oidc-user@example.com', 'name' => 'OIDC User', 'location' => 'Berlin' },
+        }
+      end
+
+      it 'stores the location as address' do
+        expect(described_class.create_from_hash!(auth_hash)).to have_attributes(address: 'Berlin')
+      end
+
+      context 'when the address attribute was deleted', db_strategy: :reset do
+        before do
+          ObjectManager::Attribute.remove(object: 'User', name: 'address')
+          ObjectManager::Attribute.migration_execute
+        end
+
+        it 'creates the user' do
+          expect { described_class.create_from_hash!(auth_hash) }.to change(described_class, :count).by(1)
+        end
+      end
+    end
+
     describe '.identify' do
       it 'returns users by given login' do
         expect(described_class.identify(user.login)).to eq(user)
@@ -292,6 +323,161 @@ RSpec.describe User, type: :model do
 
       it 'returns nil for empty username' do
         expect(described_class.identify('')).to be_nil
+      end
+    end
+
+    describe '.by_login' do
+      let!(:user) { create(:user, login: 'Lookup.User@example.com') }
+
+      it 'finds the user regardless of the case of the given login' do
+        expect(described_class.by_login('LOOKUP.USER@EXAMPLE.COM').take).to eq(user)
+      end
+
+      it 'returns nothing for an unknown login' do
+        expect(described_class.by_login('unknown@example.com')).to be_none
+      end
+
+      # glibc lowers İ to a plain i and ICU a final Σ to ς, while #check_login
+      # stores them as i̇ and σ, so each example guards one database collation.
+      context 'when Ruby and PostgreSQL lowercase the login differently' do
+        it 'finds the user with a Turkish dotted capital I, not the one without the dot' do
+          dotted = create(:user, login: 'İlker')
+          create(:user, login: 'ilker')
+
+          expect(described_class.by_login('İlker').to_a).to eq([dotted])
+        end
+
+        it 'finds the user with a Greek capital sigma at the end, not the one with a final sigma' do
+          sigma = create(:user, login: 'ΟΔΥΣΣΕΥΣ')
+          create(:user, login: 'οδυσσευς')
+
+          expect(described_class.by_login('ΟΔΥΣΣΕΥΣ').to_a).to eq([sigma])
+        end
+      end
+
+      it 'matches nothing for nil' do
+        expect(described_class.by_login(nil)).to be_none
+      end
+
+      it 'uses the LOWER(login) index' do
+        described_class.connection.execute('SET LOCAL enable_seqscan = off')
+
+        expect(described_class.by_login(user.login).explain.inspect).to include('index_users_on_login')
+      end
+
+      it 'binds the login, so that all logins share one prepared statement' do
+        skip 'Without prepared statements, the value is inlined into the SQL.' if !described_class.connection.prepared_statements
+
+        statement_names = []
+        callback = ->(*, payload) { statement_names << payload[:statement_name] if payload[:name] == 'User Load' }
+
+        ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+          described_class.by_login('first.login').take
+          described_class.by_login('second.login').take
+        end
+
+        expect(statement_names.uniq).to contain_exactly(be_present)
+      end
+
+    end
+
+    describe '.by_login_case_sensitive' do
+      let!(:user) { create(:user, login: 'lookup.user@example.com') }
+
+      it 'finds the user by the login as given' do
+        expect(described_class.by_login_case_sensitive('lookup.user@example.com').take).to eq(user)
+      end
+
+      it 'does not match a login differing only in case' do
+        expect(described_class.by_login_case_sensitive('LOOKUP.USER@EXAMPLE.COM')).to be_none
+      end
+
+      it 'matches nothing for nil' do
+        expect(described_class.by_login_case_sensitive(nil)).to be_none
+      end
+
+      it 'matches any login of an array like where(login:) does' do
+        expect(described_class.by_login_case_sensitive(['lookup.user@example.com', 'other.user@example.com']).take).to eq(user)
+      end
+
+      it 'follows the table alias of a joined association' do
+        # Not a model subclass: an ApplicationModel descendant would stay in
+        # .descendants, and so in Taskbar.entity_classes, for the rest of the run.
+        stub_const('TicketWithLoginCustomers', Class.new(ActiveRecord::Base) do # rubocop:disable Rails/ApplicationRecord
+          self.table_name = 'tickets'
+
+          belongs_to :owner, class_name: 'User', inverse_of: false
+          has_many :login_customers, -> { by_login_case_sensitive('x') }, class_name: 'User', foreign_key: :customer_id, inverse_of: false
+        end)
+
+        expect(TicketWithLoginCustomers.joins(:owner, :login_customers).to_sql)
+          .to match(%r{JOIN "users" "(?<alias>\w+)" ON .*LOWER\("\k<alias>"\."login"\)})
+      end
+
+      it 'uses the LOWER(login) index' do
+        described_class.connection.execute('SET LOCAL enable_seqscan = off')
+
+        expect(described_class.by_login_case_sensitive(user.login).explain.inspect).to include('index_users_on_login')
+      end
+
+      it 'backs .lookup by login' do
+        expect(described_class.lookup(login: 'lookup.user@example.com')).to eq(user)
+      end
+
+      it 'keeps .lookup by login case-sensitive' do
+        expect(described_class.lookup(login: 'LOOKUP.USER@EXAMPLE.COM')).to be_nil
+      end
+
+      it 'keeps .lookup by other keys working' do
+        expect(described_class.lookup(id: user.id)).to eq(user)
+      end
+    end
+
+    describe '.by_login_or_email' do
+      let!(:user) { create(:user, login: 'some.login', email: 'some.email@example.com') }
+
+      it 'finds the user by login regardless of case' do
+        expect(described_class.by_login_or_email('SOME.LOGIN').take).to eq(user)
+      end
+
+      it 'finds the user by email' do
+        expect(described_class.by_login_or_email('some.email@example.com').take).to eq(user)
+      end
+
+      it 'finds the user by email regardless of case' do
+        expect(described_class.by_login_or_email('SOME.EMAIL@EXAMPLE.COM').take).to eq(user)
+      end
+
+      it 'matches no user without an email address for nil' do
+        create(:user, :without_email)
+
+        expect(described_class.by_login_or_email(nil)).to be_none
+      end
+
+      it 'returns nothing when neither matches' do
+        expect(described_class.by_login_or_email('unknown')).to be_none
+      end
+
+      it 'combines the LOWER(login) and the email index' do
+        described_class.connection.execute('SET LOCAL enable_seqscan = off')
+
+        plan = described_class.by_login_or_email(user.login).explain.inspect
+
+        expect(plan).to include('BitmapOr').and include('index_users_on_login').and include('index_users_on_email')
+      end
+
+      it 'binds the value, so that all values share one prepared statement' do
+        skip 'Without prepared statements, the value is inlined into the SQL.' if !described_class.connection.prepared_statements
+
+        statement_names = []
+        callback = ->(*, payload) { statement_names << payload[:statement_name] if payload[:name] == 'User Load' }
+
+        ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+          described_class.by_login_or_email('first.login').take
+          described_class.by_login_or_email('second.login').take
+        end
+
+        expect(statement_names.uniq).to contain_exactly(be_present)
       end
     end
 
@@ -357,6 +543,49 @@ RSpec.describe User, type: :model do
       end
     end
 
+    describe '.reset_personal_notifications_preferences!' do
+      let(:custom_sound) { { 'file' => 'Plop.mp3', 'enabled' => false } }
+
+      context 'when user is agent' do
+        before do
+          agent.preferences['notification_config']['group_ids'] = ['123']
+          agent.preferences['notification_config']['matrix']['escalation']['criteria']['owned_by_me'] = false
+          agent.preferences['notification_sound'] = custom_sound
+          agent.save!
+        end
+
+        it 'removes selected groups' do
+          expect { described_class.reset_personal_notifications_preferences!(agent) }
+            .to change { agent.reload.preferences.dig('notification_config', 'group_ids') }
+            .to(nil)
+        end
+
+        it 'removes notification sound settings' do
+          expect { described_class.reset_personal_notifications_preferences!(agent) }
+            .to change { agent.reload.preferences['notification_sound'] }
+            .to(nil)
+        end
+
+        it 'resets matrix' do
+          expect { described_class.reset_personal_notifications_preferences!(agent) }
+            .to change { agent.reload.preferences.dig('notification_config', 'matrix', 'escalation', 'criteria', 'owned_by_me') }
+            .to(true)
+        end
+      end
+
+      context 'when user is not agent' do
+        before do
+          customer.preferences['notification_sound'] = custom_sound
+          customer.save!
+        end
+
+        it 'does not change notification sound settings' do
+          expect { described_class.reset_personal_notifications_preferences!(customer) }
+            .not_to change { customer.reload.preferences['notification_sound'] }
+        end
+      end
+    end
+
     describe '.by_mobile' do
       let!(:user)        { create(:customer, mobile: saved_mobile) }
       let(:saved_mobile) { '+4912341234' }
@@ -417,6 +646,36 @@ RSpec.describe User, type: :model do
         user = described_class.new(firstname: nil, lastname: nil, email: nil, phone: '12345', login: 'phone-only')
 
         expect(user.fullname).to eq('12345')
+      end
+    end
+
+    describe '#display_name_from_parts' do
+      subject(:user) { described_class.new(firstname: 'John', lastname: 'Doe') }
+
+      it 'joins first and last name by default' do
+        expect(user.display_name_from_parts).to eq('John Doe')
+      end
+
+      context "when user_name_format is 'last_first'" do
+        before { Setting.set('user_name_format', 'last_first') }
+
+        it 'reverses the order' do
+          expect(user.display_name_from_parts).to eq('Doe John')
+        end
+      end
+
+      context "when user_name_format is 'last_first_comma'" do
+        before { Setting.set('user_name_format', 'last_first_comma') }
+
+        it 'reverses the order and joins with a comma' do
+          expect(user.display_name_from_parts).to eq('Doe, John')
+        end
+      end
+
+      it 'never falls back to personal data' do
+        user = described_class.new(firstname: nil, lastname: '', email: 'user@example.com', phone: '12345')
+
+        expect(user.display_name_from_parts).to eq('')
       end
     end
 
@@ -858,6 +1117,17 @@ RSpec.describe User, type: :model do
 
         it 'adds corresponding CallerId record' do
           expect { user }
+            .to change { Cti::CallerId.where(caller_id: orig_number).count }.by(1)
+        end
+      end
+
+      # A new ticket touches its customer, so a customer created with the ticket is saved twice
+      #   in one transaction, and only the touch is left in previous_changes at the commit.
+      context 'when included on create and touched in the same transaction' do
+        let(:orig_number) { '1234567890' }
+
+        it 'adds corresponding CallerId record' do
+          expect { described_class.transaction { user.touch } }
             .to change { Cti::CallerId.where(caller_id: orig_number).count }.by(1)
         end
       end
@@ -1304,6 +1574,7 @@ RSpec.describe User, type: :model do
         'Ticket::State'                      => { 'created_by_id' => 1, 'updated_by_id' => 1 },
         'PostmasterFilter'                   => { 'created_by_id' => 0, 'updated_by_id' => 0 },
         'PublicLink'                         => { 'created_by_id' => 1, 'updated_by_id' => 0 },
+        'PushSubscription'                   => { 'user_id' => 0 },
         'User::TwoFactorPreference'          => { 'created_by_id' => 1, 'updated_by_id' => 1, 'user_id' => 1 },
         'OnlineNotification'                 => { 'user_id' => 1, 'created_by_id' => 0, 'updated_by_id' => 0 },
         'Ticket'                             => { 'created_by_id' => 0, 'updated_by_id' => 0, 'owner_id' => 1, 'customer_id' => 3 },
@@ -2247,6 +2518,12 @@ RSpec.describe User, type: :model do
 
   describe 'Assign user to multiple organizations #1573' do
     context 'when importing users via csv' do
+      # CSV import diffs records by their attributes, so it needs the unredacted ones - in the
+      # application it runs either as an admin or as background work
+      around do |example|
+        UserInfo.with_system_context { example.run }
+      end
+
       let(:organization1) { create(:organization) }
       let(:organization2) { create(:organization) }
       let(:organization3) { create(:organization) }
@@ -2292,7 +2569,10 @@ RSpec.describe User, type: :model do
       end
 
       it 'does not allow creation with more than 250 organizations' do
-        expect { create(:agent, organization: create(:organization), organizations: create_list(:organization, 251)) }.to raise_error(ActiveRecord::RecordInvalid, 'Validation failed: More than 250 secondary organizations are not allowed.')
+        user = build(:agent, organization: create(:organization))
+        allow(user).to receive(:organization_ids).and_return(Array.new(251) { |i| i + 1_000_000 })
+
+        expect { user.save! }.to raise_error(ActiveRecord::RecordInvalid, 'Validation failed: More than 250 secondary organizations are not allowed.')
       end
     end
   end
@@ -2434,11 +2714,14 @@ RSpec.describe User, type: :model do
       expect { create(:user, organization_id: organizations.first.id, organization_ids: [organizations.first.id, organizations.second.id]) }.to raise_error(ActiveRecord::RecordInvalid, 'Validation failed: Secondary organizations cannot include the primary organization.')
     end
 
-    it 'is not allowed to add one of the secondary orgaizations as primary' do
-      user = create(:user, organization: organizations.first, organizations: [organizations.second])
+    %i[<< push append concat].each do |method|
+      it "is not allowed to add the primary organization as secondary via ##{method}" do
+        user = create(:user, organization: organizations.first, organizations: [organizations.second])
 
-      expect { user.organizations << organizations.first }
-        .to raise_error(ActiveRecord::RecordInvalid, 'Validation failed: Secondary organizations cannot include the primary organization.')
+        expect { user.organizations.public_send(method, organizations.first) }
+          .to raise_error(ActiveRecord::RecordInvalid, 'Validation failed: Secondary organizations cannot include the primary organization.')
+        expect(user.reload.organizations).to eq([organizations.second])
+      end
     end
 
     it 'allows to move organization from secondary to primary' do
@@ -2446,6 +2729,67 @@ RSpec.describe User, type: :model do
 
       expect { user.update!(organization: organizations.second, organizations: [organizations.first]) }
         .not_to raise_error
+      expect(user.reload).to have_attributes(organization: organizations.second, organizations: [organizations.first])
+    end
+
+    it 'allows to move organization from primary to secondary regardless of attribute order' do
+      user = create(:user, organization: organizations.first, organizations: [organizations.second])
+
+      expect { user.update!(organization_ids: [organizations.first.id], organization_id: organizations.second.id) }
+        .not_to raise_error
+      expect(user.reload).to have_attributes(organization: organizations.second, organizations: [organizations.first])
+    end
+
+    it 'allows to move organization from primary to secondary regardless of association order' do
+      user = create(:user, organization: organizations.first, organizations: [organizations.second])
+
+      expect { user.update!(organizations: [organizations.first], organization: organizations.second) }
+        .not_to raise_error
+      expect(user.reload).to have_attributes(organization: organizations.second, organizations: [organizations.first])
+    end
+
+    it 'is not allowed to replace the secondary organizations with the primary one' do
+      user = create(:user, organization: organizations.first, organizations: [organizations.second])
+
+      expect { user.update!(organizations: [organizations.second, organizations.first]) }
+        .to raise_error(ActiveRecord::RecordInvalid, 'Validation failed: Secondary organizations cannot include the primary organization.')
+      expect(user.reload.organizations).to eq([organizations.second])
+    end
+
+    it 'is not allowed to replace the secondary organizations with the primary one without a save' do
+      user = create(:user, organization: organizations.first, organizations: [organizations.second])
+
+      expect { user.organization_ids = [organizations.second.id, organizations.first.id] }
+        .to raise_error(ActiveRecord::RecordInvalid, 'Validation failed: Secondary organizations cannot include the primary organization.')
+      expect(user.reload.organizations).to eq([organizations.second])
+    end
+
+    it 'allows to move organization from primary to secondary by appending it inside a transaction' do
+      user = create(:user, organization: organizations.first)
+
+      expect do
+        described_class.transaction do
+          user.organizations << organizations.first
+          user.update!(organization: organizations.second)
+        end
+      end.not_to raise_error
+      expect(user.reload).to have_attributes(organization: organizations.second, organizations: [organizations.first])
+    end
+
+    it 'is not allowed to append a secondary organization twice' do
+      user = create(:user, organization: organizations.first, organizations: [organizations.second])
+
+      expect { user.organizations << organizations.second }
+        .to raise_error(ActiveRecord::RecordInvalid, 'Validation failed: Secondary organizations cannot include the same organization twice.')
+      expect(user.reload.organizations).to eq([organizations.second])
+    end
+
+    it 'is not allowed to assign a secondary organization twice' do
+      user = create(:user, organization: organizations.first)
+
+      expect { user.update!(organization_ids: [organizations.second.id, organizations.second.id]) }
+        .to raise_error(ActiveRecord::RecordInvalid, 'Validation failed: Secondary organizations cannot include the same organization twice.')
+      expect(user.reload.organizations).to be_empty
     end
   end
 
@@ -2676,15 +3020,6 @@ RSpec.describe User, type: :model do
         ]
       end
 
-      around do |example|
-        default_disable_in_test_env = Service::Image::Zammad.const_get(:DISABLE_IN_TEST_ENV)
-        silence_warnings { Service::Image::Zammad.const_set(:DISABLE_IN_TEST_ENV, false) }
-
-        example.run
-
-        silence_warnings { Service::Image::Zammad.const_set(:DISABLE_IN_TEST_ENV, default_disable_in_test_env) }
-      end
-
       it 'derives fullname/firstname/lastname/email/login per test case', :aggregate_failures do
         tests.each do |test|
           user = described_class.find_by(login: test[:create][:login])
@@ -2816,6 +3151,29 @@ RSpec.describe User, type: :model do
         expect(customer.email).to eq(email)
         customer.destroy!
       end
+    end
+  end
+
+  describe '#search_index_update_inline' do
+    let(:organization) { create(:organization) }
+    let(:user)         { create(:agent, organization: organization) }
+
+    before do
+      allow(SearchIndexBackend).to receive_messages(enabled?: true, update_inline: true)
+    end
+
+    it 'clears a removed reference explicitly' do
+      user.update!(organization: nil)
+      user.search_index_update_inline
+
+      expect(SearchIndexBackend).to have_received(:update_inline).with('User', hash_including('organization_id' => nil, 'organization' => nil))
+    end
+
+    it 'drops ignored attributes when leaving references to the background job' do
+      allow(user).to receive(:search_index_inline_include_references?).and_return(false)
+      user.search_index_update_inline
+
+      expect(SearchIndexBackend).to have_received(:update_inline).with('User', hash_excluding('image', 'login_failed'))
     end
   end
 end

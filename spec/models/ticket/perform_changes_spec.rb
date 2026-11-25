@@ -335,6 +335,32 @@ RSpec.describe 'Ticket::PerformChanges', :aggregate_failures do
       expect { object.perform_changes(performable, 'trigger', object, User.first) }
         .to change(object, :destroyed?).to(true)
     end
+
+    context 'when the perform hash also contains notifications and articles' do
+      let(:perform) do
+        {
+          'ticket.action'        => { 'value' => 'delete' },
+          'notification.email'   => {
+            'recipient' => 'ticket_customer',
+            'subject'   => 'Ticket deleted',
+            'body'      => "Ticket \#{created_article.ticket_id} (\#{created_article.subject}) was deleted.",
+          },
+          'notification.webhook' => { 'webhook_id' => create(:webhook).id.to_s },
+          'article.note'         => { 'subject' => 'Deleted', 'body' => 'Deleted', 'internal' => 'true' },
+        }
+      end
+
+      it 'deletes the ticket without creating articles' do
+        expect { object.perform_changes(performable, 'trigger', object, User.first) }
+          .to change(object, :destroyed?).to(true)
+          .and not_change(Ticket::Article, :count)
+      end
+
+      it 'does not enqueue webhook jobs', performs_jobs: true do
+        expect { object.perform_changes(performable, 'trigger', object, User.first) }
+          .not_to change { enqueued_jobs.count { |job| job[:job] == TriggerWebhookJob } }
+      end
+    end
   end
 
   context 'with a "notification.email" trigger' do
@@ -804,6 +830,99 @@ RSpec.describe 'Ticket::PerformChanges', :aggregate_failures do
           internal: true,
         )
       end
+    end
+  end
+
+  context 'with a "checklist.add_from_template" trigger', current_user_id: 1 do
+    let(:template) { create(:checklist_template, items: ['Template item 1', 'Template item 2']) }
+
+    let(:perform) do
+      { 'checklist.add_from_template' => { 'checklist_template_id' => template.id.to_s } }
+    end
+
+    before { allow(Rails.logger).to receive(:info).and_call_original }
+
+    it 'creates a checklist from the template' do
+      object.perform_changes(performable, 'trigger', object, 1)
+
+      expect(object.reload.checklist).to have_attributes(name: template.name, created_by_id: 1)
+      expect(object.checklist.sorted_items.map(&:text)).to eq(['Template item 1', 'Template item 2'])
+    end
+
+    context 'when the ticket already has a checklist' do
+      let(:checklist) { create(:checklist, name: 'Existing checklist', item_count: 1, ticket: object) }
+
+      before { checklist }
+
+      it 'appends the template items to the existing checklist' do
+        object.perform_changes(performable, 'trigger', object, 1)
+
+        expect(object.reload.checklist).to have_attributes(id: checklist.id, name: 'Existing checklist')
+        expect(object.checklist.sorted_items.map(&:text).last(2)).to eq(['Template item 1', 'Template item 2'])
+        expect(object.checklist.items.count).to eq(3)
+      end
+    end
+
+    shared_examples 'skipping the action' do
+      it 'adds no checklist items and logs the reason' do
+        expect { object.perform_changes(performable, 'trigger', object, 1) }
+          .to not_change(Checklist, :count)
+          .and not_change(Checklist::Item, :count)
+
+        expect(Rails.logger)
+          .to have_received(:info)
+          .with("Skip checklist template for Ticket/#{object.id} from trigger (#{performable.name}/#{performable.id}): #{skip_reason}")
+      end
+    end
+
+    context 'when the checklist feature is disabled' do
+      let(:skip_reason) { 'checklist feature is disabled' }
+
+      before { Setting.set('checklist', false) }
+
+      include_examples 'skipping the action'
+    end
+
+    context 'when the template does not exist' do
+      let(:skip_reason) { "checklist template #{template.id} not found" }
+
+      before { template.destroy! }
+
+      include_examples 'skipping the action'
+    end
+
+    context 'when the template is inactive' do
+      let(:skip_reason) { 'Checklist template must be active to use as a checklist starting point.' }
+
+      before { template.update!(active: false) }
+
+      include_examples 'skipping the action'
+    end
+
+    context 'when the template items do not fit into the item limit' do
+      let(:template)    { create(:checklist_template, item_count: 99) }
+      let(:skip_reason) { 'Checklist items are limited to 100 items per checklist.' }
+
+      before { create(:checklist, item_count: 2, ticket: object) }
+
+      include_examples 'skipping the action'
+    end
+
+    # The checklist is written before the ticket is saved with it, so the ticket's own validation
+    #   fails after the checklist exists and a bare rescue would keep that checklist. The refreshed
+    #   ticket carries no in-memory changes, so its rejection is injected.
+    context 'when the ticket fails its own validation while the checklist is written' do
+      let(:skip_reason) { 'Validation failed: rejected the checklist' }
+
+      before do
+        allow(object).to receive(:valid?) do
+          object.errors.clear
+          object.errors.add(:base, 'rejected the checklist')
+          false
+        end
+      end
+
+      include_examples 'skipping the action'
     end
   end
 

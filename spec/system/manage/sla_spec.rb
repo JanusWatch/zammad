@@ -13,24 +13,24 @@ RSpec.describe 'Manage > Sla', type: :system do
     page.find('.js-new').click
 
     # enable all checkboxes
-    page.find('input#update_time', visible: false).find(:xpath, './/..').click
-    page.first('.js-updateTypeSelector', visible: false).click
-    page.find('input#solution_time', visible: false).find(:xpath, './/..').click
+    page.find('input#update_time', visible: :all).find(:xpath, './/..').click
+    page.first('.js-updateTypeSelector', visible: :all).click
+    page.find('input#solution_time', visible: :all).find(:xpath, './/..').click
 
     # check if required
-    expect(page.find('input[name=first_response_time_in_text]')[:required].to_s).to eq('true')
-    expect(page.find('input[name=update_time_in_text]')[:required].to_s).to eq('true')
-    expect(page.find('input[name=solution_time_in_text]')[:required].to_s).to eq('true')
+    expect(page).to have_css('input[name=first_response_time_in_text][required]')
+    expect(page).to have_css('input[name=update_time_in_text][required]')
+    expect(page).to have_css('input[name=solution_time_in_text][required]')
 
     # drop all checkboxes
-    page.find('input#first_response_time', visible: false).find(:xpath, './/..').click
-    page.find('input#update_time', visible: false).find(:xpath, './/..').click
-    page.find('input#solution_time', visible: false).find(:xpath, './/..').click
+    page.find('input#first_response_time', visible: :all).find(:xpath, './/..').click
+    page.find('input#update_time', visible: :all).find(:xpath, './/..').click
+    page.find('input#solution_time', visible: :all).find(:xpath, './/..').click
 
     # check if optional
-    expect(page.find('input[name=first_response_time_in_text]')[:required].to_s).not_to eq('true')
-    expect(page.find('input[name=update_time_in_text]')[:required].to_s).not_to eq('true')
-    expect(page.find('input[name=solution_time_in_text]')[:required].to_s).not_to eq('true')
+    expect(page).to have_no_css('input[name=first_response_time_in_text][required]')
+    expect(page).to have_no_css('input[name=update_time_in_text][required]')
+    expect(page).to have_no_css('input[name=solution_time_in_text][required]')
   end
 
   describe 'for saved entry', authenticated_as: :authenticate do
@@ -43,19 +43,19 @@ RSpec.describe 'Manage > Sla', type: :system do
       page.find('.js-edit').click
 
       # check if required
-      expect(page.find('input[name=first_response_time_in_text]')[:required].to_s).to eq('true')
-      expect(page.find('input[name=update_time_in_text]')[:required].to_s).to eq('true')
-      expect(page.find('input[name=solution_time_in_text]')[:required].to_s).to eq('true')
+      expect(page).to have_css('input[name=first_response_time_in_text][required]')
+      expect(page).to have_css('input[name=update_time_in_text][required]')
+      expect(page).to have_css('input[name=solution_time_in_text][required]')
 
       # drop all checkboxes
-      page.find('input#first_response_time', visible: false).find(:xpath, './/..').click
-      page.find('input#update_time', visible: false).find(:xpath, './/..').click
-      page.find('input#solution_time', visible: false).find(:xpath, './/..').click
+      page.find('input#first_response_time', visible: :all).find(:xpath, './/..').click
+      page.find('input#update_time', visible: :all).find(:xpath, './/..').click
+      page.find('input#solution_time', visible: :all).find(:xpath, './/..').click
 
       # check if optional
-      expect(page.find('input[name=first_response_time_in_text]')[:required].to_s).not_to eq('true')
-      expect(page.find('input[name=update_time_in_text]')[:required].to_s).not_to eq('true')
-      expect(page.find('input[name=solution_time_in_text]')[:required].to_s).not_to eq('true')
+      expect(page).to have_no_css('input[name=first_response_time_in_text][required]')
+      expect(page).to have_no_css('input[name=update_time_in_text][required]')
+      expect(page).to have_no_css('input[name=solution_time_in_text][required]')
     end
   end
 
@@ -68,7 +68,7 @@ RSpec.describe 'Manage > Sla', type: :system do
     it 'shows and saves long times correctly (#6355)' do
       click '.js-edit'
 
-      in_modal do
+      in_modal disappears: true do
         expect(page).to have_field('first_response_time_in_text', with: '100:00')
         expect(page).to have_field('update_time_in_text', with: '1440:00')
         expect(page).to have_field('solution_time_in_text', with: '99999:00')

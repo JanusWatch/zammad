@@ -165,17 +165,17 @@
   }
 
   /*
-    Responsive multi-column mode for object attributes:
-    - compatibility layer for object attributes via legacy `.formGroup--halfSize` class
-    - container query via optional TW `@container/object-attributes` class
+    Responsive multi-column mode for entity attributes:
+    - compatibility layer for entity attributes via legacy `.formGroup--halfSize` class
+    - container query via optional TW `@container/entity-attributes` class
   */
-  .object-attributes .object-attribute {
-    @apply col-span-full @md/object-attributes:col-span-1;
+  .entity-attributes .entity-attribute {
+    @apply col-span-full @md/entity-attributes:col-span-1;
 
     /* Optional full-width style for configured attributes. */
-    &.object-attribute-spanned-column,
+    &.entity-attribute-spanned-column,
     &:last-of-type:nth-of-type(odd) {
-      @apply @md/object-attributes:col-span-full;
+      @apply @md/entity-attributes:col-span-full;
     }
   }
 
@@ -229,8 +229,36 @@
     }
   }
 
+  /* The gradient is the badge's own background and the fill covers it 1px smaller, so the ring
+     needs no border and the badge keeps the height of every other badge. */
+  .badge-ai {
+    /* The fill sits 1px inside the badge, so its corners have to curve 1px tighter than the
+       badge's own, or the ring grows thicker around them. */
+    --badge-ai-radius: var(--radius-md);
+
+    @apply relative isolate text-normal before:absolute before:inset-px before:-z-1 before:bg-neutral-50 before:content-[''] dark:before:bg-gray-500;
+
+    background-image: var(--gradient-ai);
+
+    &::before {
+      border-radius: calc(var(--badge-ai-radius) - 1px);
+    }
+
+    &.rounded-lg {
+      --badge-ai-radius: var(--radius-lg);
+    }
+
+    &.rounded-xl {
+      --badge-ai-radius: var(--radius-xl);
+    }
+
+    &.rounded-full {
+      --badge-ai-radius: 9999px;
+    }
+  }
+
   .tooltip {
-    @apply fixed z-60 w-fit -translate-y-2 rounded-md border border-neutral-100 bg-blue-200 px-2 py-1 text-xs leading-snug text-wrap text-gray-100 opacity-0 transition-all select-none dark:border-gray-900 dark:bg-gray-700 dark:text-neutral-400;
+    @apply fixed z-60 w-fit -translate-y-2 rounded-md border border-neutral-100 bg-blue-200 px-2 py-1 text-xs leading-snug text-wrap text-normal opacity-0 transition-all select-none dark:border-gray-900 dark:bg-gray-700;
   }
 
   .tooltip-animate {
@@ -341,7 +369,7 @@
     }
 
     .video-widget-chip-caption {
-      @apply h-8.5 truncate border-t border-neutral-100 p-2 text-center text-xs leading-snug text-gray-100 dark:border-gray-900 dark:text-neutral-400;
+      @apply h-8.5 truncate border-t border-neutral-100 p-2 text-center text-xs leading-snug text-normal dark:border-gray-900;
     }
 
     table.zammad-table,
@@ -728,7 +756,7 @@
 }
 
 @utility group-block {
-  @apply rounded-3xl bg-neutral-50 p-5 text-black dark:bg-gray-500 dark:text-white;
+  @apply rounded-3xl bg-neutral-50 p-5 text-contrast dark:bg-gray-500;
 }
 
 @utility backface-hidden {
@@ -736,7 +764,7 @@
 }
 
 @utility required {
-  @apply after:ms-0.75 after:text-yellow-600 after:content-['*'] formkit-invalid:after:text-red-500 formkit-errors:after:text-red-500;
+  @apply after:ms-0.75 after:text-yellow-700 after:content-['*'] dark:after:text-yellow-300 formkit-invalid:after:text-red-500 formkit-errors:after:text-red-500;
 }
 
 @utility ai-stripe {
@@ -807,6 +835,29 @@
   100% {
     background-position: -200% 0;
   }
+}
+
+/* The same stripe for every translation service; only its colours and pace name the kind. */
+@utility translation-stripe {
+  height: 1px;
+  background: repeating-linear-gradient(
+    to right,
+    var(--color-blue-800),
+    var(--color-pink-200),
+    var(--color-blue-800)
+  );
+  background-size: 200% auto;
+  animation: gradient 1.8s linear infinite;
+}
+
+@utility translation-stripe-machine {
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--color-blue-800),
+    var(--color-blue-200),
+    var(--color-blue-800)
+  );
+  animation-duration: 2.6s;
 }
 
 /* https://developer.mozilla.org/en-US/docs/Web/CSS/word-break#break-word */

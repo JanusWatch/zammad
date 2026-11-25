@@ -7,8 +7,10 @@ import type {
   KnowledgeBaseCategoryTranslation,
 } from '#shared/graphql/schema-types.ts'
 import type {
+  KnowledgeBaseAnswerPreInfoFragment,
   KnowledgeBaseAnswerQuery,
   KnowledgeBaseCategoryPolicyFragment,
+  KnowledgeBaseCategoryBreadcrumbFragment,
   KnowledgeBaseSearchQuery,
 } from '#shared/graphql/types.ts'
 
@@ -20,35 +22,21 @@ import type { KnowledgeBaseIconSet } from '#desktop/entities/knowledge-base/type
 //   sorting state talks about a node's lists, not about the schema.
 export type KnowledgeBaseSortingMode = EnumKnowledgeBaseSortingMode
 
+// The two kinds of content the knowledge base holds. Whatever lists one of them - the browse
+//   page's two listings, the split search results - is keyed by these, and so is the tab control
+//   above either of them (KnowledgeBaseContentTabs).
+export type KnowledgeBaseContentScope = 'categories' | 'answers'
+
 // The two independently rearrangeable lists on a browse page. A category holds both, the
 //   knowledge base root only categories. Each carries its own sorting mode, so an editor arranges
 //   one of them at a time.
-export type KnowledgeBaseSortingScope = 'categories' | 'answers'
+export type KnowledgeBaseSortingScope = KnowledgeBaseContentScope
 
 // The modes a browsed node is stored with, one per list. The knowledge base root has no answers,
 //   so it fills the `categories` entry alone.
 export type KnowledgeBaseSortingModes = Partial<
   Record<KnowledgeBaseSortingScope, KnowledgeBaseSortingMode>
 >
-
-export interface KnowledgeBaseLocaleCompact {
-  id: string
-  primary: boolean
-  systemLocale: {
-    id: string
-    locale: string
-    name: string
-  }
-}
-
-export interface KnowledgeBaseCompact {
-  id: string
-  title: string | null | undefined
-  iconset: string
-  isPubliclyAvailable: boolean
-  isVisiblePublicly: boolean
-  kbLocales: KnowledgeBaseLocaleCompact[]
-}
 
 export interface KnowledgeBaseCategoryCompact {
   id: string
@@ -94,6 +82,16 @@ export type CategoryBreadcrumb = (Pick<
 // Derived from the query document, so the answer header cannot drift from what
 //   it actually fetches.
 export type KnowledgeBaseAnswerHeader = NonNullable<KnowledgeBaseAnswerQuery['knowledgeBaseAnswer']>
+
+// The same header, as it is served from the cache while that query is still on its way: the two
+//   pre-info fragments assembled into one record (useKnowledgeBaseAnswer). Derived from the
+//   fragments for the same reason as above - the header reads whichever of the two it has.
+export type KnowledgeBaseAnswerCachedHeader = {
+  id: string
+  translation: KnowledgeBaseAnswerPreInfoFragment['translation']
+  visibility: KnowledgeBaseAnswerPreInfoFragment['visibility']
+  breadcrumb: KnowledgeBaseCategoryBreadcrumbFragment['breadcrumb']
+}
 
 // One search hit as the result list receives it — likewise derived from the query document.
 export type KnowledgeBaseSearchResult =

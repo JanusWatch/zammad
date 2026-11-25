@@ -1,28 +1,55 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
-import { computed } from 'vue'
+import { fireEvent, waitFor } from '@testing-library/vue'
+import { computed, ref } from 'vue'
 
 import { renderComponent } from '#tests/support/components/index.ts'
+import { mockApplicationConfig } from '#tests/support/mock-applicationConfig.ts'
+import { mockPermissions } from '#tests/support/mock-permissions.ts'
 
+import { createArticleTranslationMock } from '#shared/entities/ticket-article/__tests__/mocks/articleTranslation.ts'
 import { createDummyArticle } from '#shared/entities/ticket-article/__tests__/mocks/ticket-articles.ts'
 import { createDummyTicket } from '#shared/entities/ticket-article/__tests__/mocks/ticket.ts'
-import { EnumTicketArticleSenderName } from '#shared/graphql/types.ts'
+import { replyToEmail } from '#shared/entities/ticket-article/action/plugins/email/reply.ts'
+import {
+  mockTicketArticleTranslationTargetLocalesQuery,
+  mockTicketArticleTranslationTargetLocalesQueryError,
+  waitForTicketArticleTranslationTargetLocalesQueryCalls,
+} from '#shared/entities/ticket-article/graphql/queries/ticketArticleTranslationTargetLocales.mocks.ts'
+import { useArticleTranslationStore } from '#shared/entities/ticket-article/stores/articleTranslation.ts'
+import { EnumTextDirection, EnumTicketArticleSenderName } from '#shared/graphql/types.ts'
 import { convertToGraphQLId } from '#shared/graphql/utils.ts'
+import { GraphQLErrorTypes } from '#shared/types/error.ts'
 
 import { provideTicketInformationMocks } from '#desktop/entities/ticket/__tests__/mocks/provideTicketInformationMocks.ts'
 import ArticleBubbleActionList from '#desktop/pages/ticket/components/TicketDetailView/ArticleBubble/ArticleBubbleActionList.vue'
+
+vi.mock('#shared/entities/ticket-article/action/plugins/email/reply.ts', () => ({
+  replyToEmail: vi.fn(),
+}))
+
+// The tab's translation state, as the bubble injects it.
+let articleTranslation = createArticleTranslationMock()
+
+beforeEach(() => {
+  articleTranslation = createArticleTranslationMock()
+})
 
 const renderArticleBubbleActionList = (options?: {
   position?: 'left' | 'right'
   articleOverrides?: Parameters<typeof createDummyArticle>[0]
   provideOverrides?: Parameters<typeof provideTicketInformationMocks>[1]
   withGroupEmail?: boolean
+  editable?: boolean
+  ticketPolicy?: NonNullable<Parameters<typeof createDummyTicket>[0]>['defaultPolicy']
 }) => {
   const {
     position = 'left',
     articleOverrides,
     provideOverrides,
     withGroupEmail = true,
+    editable = true,
+    ticketPolicy,
   } = options || {}
 
   return renderComponent(
@@ -48,6 +75,11 @@ const renderArticleBubbleActionList = (options?: {
         })
 
         const ticket = createDummyTicket({
+          defaultPolicy: ticketPolicy ?? {
+            __typename: 'PolicyTicket',
+            update: editable,
+            agentReadAccess: true,
+          },
           group: {
             emailAddress: withGroupEmail
               ? {
@@ -58,7 +90,7 @@ const renderArticleBubbleActionList = (options?: {
           },
         })
 
-        provideTicketInformationMocks(ticket, provideOverrides)
+        provideTicketInformationMocks(ticket, { articleTranslation, ...provideOverrides })
 
         return { position, article }
       },
@@ -195,11 +227,262 @@ describe('ArticleBubbleActionList', () => {
     expect(wrapper.getByTestId('top-level-article-action-container')).toHaveClass('order-first')
   })
 
-  it('does not render actions when ticket is not editable', () => {
+  it('keeps the read-only actions when the ticket is not editable', async () => {
     const wrapper = renderArticleBubbleActionList({
+      editable: false,
       provideOverrides: { isTicketEditable: computed(() => false) },
     })
 
     expect(wrapper.queryByTestId('top-level-article-action-container')).not.toBeInTheDocument()
+
+    await wrapper.events.click(wrapper.getByRole('button', { name: 'Action menu button' }))
+
+    expect(wrapper.getByRole('menuitem', { name: 'Copy article permalink' })).toBeInTheDocument()
+    expect(wrapper.queryByRole('menuitem', { name: 'Set to internal' })).not.toBeInTheDocument()
+  })
+
+  describe('with a pending action', () => {
+    const mockPendingReply = () => {
+      let resolveReply!: () => void
+
+      vi.mocked(replyToEmail).mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          resolveReply = resolve
+        }),
+      )
+
+      return () => resolveReply()
+    }
+
+    it('shows the busy state on the triggering button and blocks the other actions until it settles', async () => {
+      const resolveReply = mockPendingReply()
+
+      const wrapper = renderArticleBubbleActionList({ provideOverrides: { form: ref() } })
+
+      const followUp = wrapper.getByRole('button', { name: 'Follow up' })
+      const menu = wrapper.getByRole('button', { name: 'Action menu button' })
+
+      await wrapper.events.click(followUp)
+
+      expect(followUp).toHaveAttribute('aria-busy', 'true')
+      expect(followUp).toHaveAttribute('aria-disabled', 'true')
+      expect(menu).toHaveAttribute('aria-disabled', 'true')
+
+      resolveReply()
+
+      await waitFor(() => expect(followUp).not.toHaveAttribute('aria-busy', 'true'))
+      expect(followUp).not.toHaveAttribute('aria-disabled')
+      expect(menu).not.toHaveAttribute('aria-disabled')
+    })
+
+    it('ignores further clicks while the action is pending', async () => {
+      const resolveReply = mockPendingReply()
+
+      const wrapper = renderArticleBubbleActionList({ provideOverrides: { form: ref() } })
+
+      const followUp = wrapper.getByRole('button', { name: 'Follow up' })
+
+      await wrapper.events.click(followUp)
+      // The disabled button takes no pointer events, so the click is dispatched directly.
+      await fireEvent.click(followUp)
+
+      expect(replyToEmail).toHaveBeenCalledOnce()
+
+      resolveReply()
+    })
+  })
+
+  describe('with article translation', () => {
+    beforeEach(() => {
+      mockPermissions(['ticket.agent'])
+    })
+
+    const enableTranslation = () => {
+      mockApplicationConfig({
+        content_translation_service: true,
+        content_translation_ticket_article: true,
+        locale_default: 'en-us',
+      })
+
+      mockTicketArticleTranslationTargetLocalesQuery({
+        ticketArticleTranslationTargetLocales: [
+          { locale: 'en-us', alias: 'en', name: 'English', dir: EnumTextDirection.Ltr },
+        ],
+      })
+
+      const store = useArticleTranslationStore()
+
+      // What the tab does on creation: asks the server whether it can translate.
+      store.loadTargetLocales()
+
+      return store
+    }
+
+    it('shows the translate control, and no menu entry', async () => {
+      enableTranslation()
+
+      const wrapper = renderArticleBubbleActionList({})
+
+      const toggle = await wrapper.findByRole('button', { name: 'Translate article' })
+      expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+      await wrapper.events.click(wrapper.getByRole('button', { name: 'Action menu button' }))
+
+      expect(wrapper.queryByRole('menuitem', { name: /Translate/ })).not.toBeInTheDocument()
+    })
+
+    it('translates the article with the translate control', async () => {
+      enableTranslation()
+
+      const wrapper = renderArticleBubbleActionList({})
+
+      await wrapper.events.click(await wrapper.findByRole('button', { name: 'Translate article' }))
+
+      expect(articleTranslation.showTranslation).toHaveBeenCalledTimes(1)
+    })
+
+    // The article body names the running translation; the button only refuses it.
+    it.each([
+      ['on its way', { status: 'pending' } as const],
+      [
+        'regenerated for the shown one',
+        { status: 'done', content: 'Hallo', translated: true, regenerating: true } as const,
+      ],
+    ])('is busy and refuses the press while a translation is %s', async (_, state) => {
+      enableTranslation()
+      articleTranslation.isTranslationActive = () => true
+      articleTranslation.translationFor = () => state
+
+      const wrapper = renderArticleBubbleActionList({})
+
+      const toggle = await wrapper.findByRole('button', { name: 'Translate article' })
+
+      expect(toggle).toHaveAttribute('aria-busy', 'true')
+      expect(toggle).toHaveAttribute('aria-disabled', 'true')
+      expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      expect(toggle).toHaveClass('text-[#8E9299]!')
+
+      await wrapper.events.click(toggle)
+
+      expect(articleTranslation.showOriginal).not.toHaveBeenCalled()
+      expect(articleTranslation.showTranslation).not.toHaveBeenCalled()
+    })
+
+    it('keeps the translate control while the translation is shown, to switch back', async () => {
+      enableTranslation()
+      const active = ref(true)
+      articleTranslation.isTranslationActive = () => active.value
+
+      const wrapper = renderArticleBubbleActionList({})
+
+      const toggle = await wrapper.findByRole('button', { name: 'Show original' })
+      expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+      await wrapper.events.click(toggle)
+      expect(articleTranslation.showOriginal).toHaveBeenCalledTimes(1)
+
+      active.value = false
+
+      await waitFor(() =>
+        expect(wrapper.getByRole('button', { name: 'Translate article' })).toHaveAttribute(
+          'aria-pressed',
+          'false',
+        ),
+      )
+    })
+
+    it('shows a failure, and puts it away on press', async () => {
+      enableTranslation()
+      articleTranslation.translationFor = () => ({ status: 'error', error: 'Provider down' })
+
+      const wrapper = renderArticleBubbleActionList({})
+
+      const toggle = await wrapper.findByRole('button', {
+        name: 'Dismiss alert',
+      })
+      expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      expect(toggle).not.toHaveAttribute('aria-disabled')
+      expect(toggle).toHaveClass('border-red-500!', 'text-red-500!')
+
+      await wrapper.events.click(toggle)
+
+      expect(articleTranslation.showOriginal).toHaveBeenCalledTimes(1)
+      expect(articleTranslation.showTranslation).not.toHaveBeenCalled()
+    })
+
+    it('keeps the same button in every state', async () => {
+      enableTranslation()
+      const state = ref<ReturnType<typeof articleTranslation.translationFor>>()
+      articleTranslation.translationFor = () => state.value
+      articleTranslation.isTranslationActive = () =>
+        state.value?.status === 'pending' || state.value?.status === 'done'
+
+      const wrapper = renderArticleBubbleActionList({})
+      const toggle = await wrapper.findByRole('button', { name: 'Translate article' })
+
+      const expectState = async (next: typeof state.value, name: string) => {
+        state.value = next
+        await waitFor(() => expect(wrapper.getByRole('button', { name })).toBe(toggle))
+        expect(toggle.querySelector('.icon-translate')).toBeInTheDocument()
+      }
+
+      await expectState({ status: 'pending' }, 'Translate article')
+      await expectState({ status: 'done', content: 'Hallo', translated: true }, 'Show original')
+      await expectState({ status: 'error', error: 'Provider down' }, 'Dismiss alert')
+      await expectState(undefined, 'Translate article')
+    })
+
+    it('offers the translate control to read-only agents', async () => {
+      enableTranslation()
+
+      const wrapper = renderArticleBubbleActionList({
+        editable: false,
+        provideOverrides: { isTicketEditable: computed(() => false) },
+      })
+
+      expect(await wrapper.findByRole('button', { name: 'Translate article' })).toBeInTheDocument()
+    })
+
+    it('offers nothing to customers', async () => {
+      const store = enableTranslation()
+
+      const wrapper = renderArticleBubbleActionList({
+        // A ticket the agent has no agent access to is shown in the customer view.
+        ticketPolicy: { __typename: 'PolicyTicket', update: false, agentReadAccess: false },
+        editable: false,
+      })
+
+      await waitFor(() => expect(store.isAvailable).toBe(true))
+
+      expect(wrapper.queryByRole('button', { name: 'Translate article' })).not.toBeInTheDocument()
+    })
+
+    it('offers nothing while the service cannot translate', async () => {
+      mockApplicationConfig({
+        content_translation_service: true,
+        content_translation_ticket_article: true,
+      })
+      mockTicketArticleTranslationTargetLocalesQueryError('AI provider is not configured.', {
+        type: GraphQLErrorTypes.UnknownError,
+      })
+      useArticleTranslationStore().loadTargetLocales()
+
+      const wrapper = renderArticleBubbleActionList({})
+
+      await waitForTicketArticleTranslationTargetLocalesQueryCalls()
+
+      expect(wrapper.queryByRole('button', { name: 'Translate article' })).not.toBeInTheDocument()
+    })
+
+    it('offers nothing while the feature is off', () => {
+      mockApplicationConfig({
+        content_translation_service: false,
+        content_translation_ticket_article: false,
+      })
+
+      const wrapper = renderArticleBubbleActionList({})
+
+      expect(wrapper.queryByRole('button', { name: 'Translate article' })).not.toBeInTheDocument()
+    })
   })
 })

@@ -40,6 +40,18 @@ const agentAutocompleteOptions = [
   },
 ] as AutocompleteSearchUserEntry[]
 
+// The segmented inputs take the digits part by part from the first one.
+const typeDateRange = async (
+  view: Awaited<ReturnType<typeof visitView>>,
+  start: string,
+  end: string,
+) => {
+  const selection = { initialSelectionStart: 0, initialSelectionEnd: 0 }
+
+  await view.events.type(view.getByLabelText('Start date'), start, selection)
+  await view.events.type(view.getByLabelText('End date'), end, selection)
+}
+
 describe('Out of Office page', () => {
   describe('when enabled', () => {
     beforeEach(() => {
@@ -64,7 +76,9 @@ describe('Out of Office page', () => {
       const view = await visitView('/personal-setting/out-of-office')
 
       expect(view.getByLabelText('Reason for absence')).toHaveValue('OOF holiday')
-      expect(view.getByLabelText('Start and end date')).toHaveValue('2024-03-01 - 2024-04-01')
+      expect(view.getByRole('group', { name: 'Start and end date' })).toBeInTheDocument()
+      expect(view.getByLabelText('Start date')).toHaveDisplayValue('2024-03-01')
+      expect(view.getByLabelText('End date')).toHaveDisplayValue('2024-04-01')
       expect(view.getByLabelText('Replacement agent')).toHaveValue('Example Agent')
       expect(view.getByLabelText('Active')).toBeChecked()
     })
@@ -124,7 +138,7 @@ describe('Out of Office page', () => {
     it('shows success notification', async () => {
       const view = await visitView('/personal-setting/out-of-office')
 
-      await view.events.click(view.getByText('Save out of office'))
+      await view.events.click(view.getByText('Save changes'))
 
       expect(
         view.getByText('Out of office settings have been saved successfully'),
@@ -137,7 +151,7 @@ describe('Out of Office page', () => {
       const input = view.getByLabelText('Reason for absence')
       await view.events.clear(input)
 
-      await view.events.click(view.getByText('Save out of office'))
+      await view.events.click(view.getByText('Save changes'))
 
       const calls = await waitForUserCurrentOutOfOfficeMutationCalls()
 
@@ -153,13 +167,17 @@ describe('Out of Office page', () => {
     it('cannot set date range to blank', async () => {
       const view = await visitView('/personal-setting/out-of-office')
 
-      const input = view.getByLabelText('Start and end date')
-      const button = getByRole(input.parentElement!, 'button')
-      await view.events.click(button)
+      // The period is all or nothing: clearing one bound empties the whole range.
+      await view.events.click(view.getAllByRole('button', { name: 'Clear the value' })[0])
 
-      await view.events.click(view.getByText('Save out of office'))
+      expect(view.getByLabelText('Start date')).toHaveDisplayValue('YYYY-MM-DD')
+      expect(view.getByLabelText('End date')).toHaveDisplayValue('YYYY-MM-DD')
 
-      expect(input).toBeDescribedBy('This field is required.')
+      await view.events.click(view.getByText('Save changes'))
+
+      expect(view.getByRole('group', { name: 'Start and end date' })).toBeDescribedBy(
+        'This field is required.',
+      )
     })
 
     it('cannot set replacement agent to blank', async () => {
@@ -169,7 +187,7 @@ describe('Out of Office page', () => {
       const button = getByRole(input, 'button')
       await view.events.click(button)
 
-      await view.events.click(view.getByText('Save out of office'))
+      await view.events.click(view.getByText('Save changes'))
 
       expect(input).toBeDescribedBy('This field is required.')
     })
@@ -204,7 +222,7 @@ describe('Out of Office page', () => {
       const input = view.getByLabelText('Active')
       await view.events.click(input)
 
-      await view.events.click(view.getByText('Save out of office'))
+      await view.events.click(view.getByText('Save changes'))
 
       const calls = await waitForUserCurrentOutOfOfficeMutationCalls()
 
@@ -223,9 +241,7 @@ describe('Out of Office page', () => {
       const inputActivated = view.getByLabelText('Active')
       await view.events.click(inputActivated)
 
-      const inputDate = view.getByLabelText('Start and end date')
-      const buttonDate = getByRole(inputDate.parentElement!, 'button')
-      await view.events.click(buttonDate)
+      await view.events.click(view.getAllByRole('button', { name: 'Clear the value' })[0])
 
       const inputLabel = view.getByLabelText('Reason for absence')
       await view.events.clear(inputLabel)
@@ -234,7 +250,7 @@ describe('Out of Office page', () => {
       const buttonAgent = getByRole(inputAgent, 'button')
       await view.events.click(buttonAgent)
 
-      await view.events.click(view.getByText('Save out of office'))
+      await view.events.click(view.getByText('Save changes'))
 
       const calls = await waitForUserCurrentOutOfOfficeMutationCalls()
 
@@ -269,7 +285,8 @@ describe('Out of Office page', () => {
 
       expect(view.getByLabelText('Reason for absence')).toHaveValue('')
 
-      expect(view.getByLabelText('Start and end date')).toHaveValue('YYYY-MM-DD - YYYY-MM-DD')
+      expect(view.getByLabelText('Start date')).toHaveDisplayValue('YYYY-MM-DD')
+      expect(view.getByLabelText('End date')).toHaveDisplayValue('YYYY-MM-DD')
 
       expect(view.getByLabelText('Replacement agent')).toHaveValue('')
       expect(view.getByLabelText('Active')).not.toBeChecked()
@@ -278,11 +295,9 @@ describe('Out of Office page', () => {
     it('can set date range', async () => {
       const view = await visitView('/personal-setting/out-of-office')
 
-      const input = view.getByLabelText('Start and end date')
-      await view.events.type(input, '2024-01-02 - 2024-02-02')
-      await view.events.keyboard('{Enter}')
+      await typeDateRange(view, '2024-01-02', '2024-02-02')
 
-      await view.events.click(view.getByText('Save out of office'))
+      await view.events.click(view.getByText('Save changes'))
 
       const calls = await waitForUserCurrentOutOfOfficeMutationCalls()
 
@@ -315,7 +330,7 @@ describe('Out of Office page', () => {
 
       await view.events.click(view.getAllByRole('option')[0])
 
-      await view.events.click(view.getByText('Save out of office'))
+      await view.events.click(view.getByText('Save changes'))
 
       const calls = await waitForUserCurrentOutOfOfficeMutationCalls()
 
@@ -334,9 +349,7 @@ describe('Out of Office page', () => {
       const inputLabel = view.getByLabelText('Active')
       await view.events.click(inputLabel)
 
-      const inputDate = view.getByLabelText('Start and end date')
-      await view.events.type(inputDate, '2024-01-02 - 2024-02-02')
-      await view.events.keyboard('{Enter}')
+      await typeDateRange(view, '2024-01-02', '2024-02-02')
 
       const inputAgent = view.getByLabelText('Replacement agent')
 
@@ -354,7 +367,7 @@ describe('Out of Office page', () => {
 
       await view.events.click(view.getAllByRole('option')[0])
 
-      await view.events.click(view.getByText('Save out of office'))
+      await view.events.click(view.getByText('Save changes'))
 
       const calls = await waitForUserCurrentOutOfOfficeMutationCalls()
 
@@ -376,10 +389,11 @@ describe('Out of Office page', () => {
       const input = view.getByLabelText('Active')
       await view.events.click(input)
 
-      await view.events.click(view.getByText('Save out of office'))
+      await view.events.click(view.getByText('Save changes'))
 
-      const inputDate = view.getByLabelText('Start and end date')
-      expect(inputDate).toBeDescribedBy('This field is required.')
+      expect(view.getByRole('group', { name: 'Start and end date' })).toBeDescribedBy(
+        'This field is required.',
+      )
     })
   })
 })

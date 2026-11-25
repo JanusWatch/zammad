@@ -55,7 +55,8 @@ watch(activeAvatar, (newValue) => {
   state.resizedImage = newValue?.imageResize || ''
 })
 
-const user = toRef(useSessionStore(), 'user')
+const session = useSessionStore()
+const user = toRef(session, 'user')
 
 const avatarDeleteDisabled = computed(() => {
   return !activeAvatar.value?.deletable
@@ -95,9 +96,7 @@ const addAvatar = () => {
         activeAvatar.value = data.userCurrentAvatarAdd.avatar
         avatarImage.value = undefined
 
-        if (user.value) {
-          user.value.image = data.userCurrentAvatarAdd.avatar.imageHash
-        }
+        session.updateUser({ image: data.userCurrentAvatarAdd.avatar.imageHash })
       }
     })
     .catch((errors: UserError) => {
@@ -137,9 +136,7 @@ const removeAvatar = () => {
       activeAvatar.value = undefined
 
       // reset image value in user store
-      if (user.value) {
-        user.value.image = undefined
-      }
+      session.updateUser({ image: undefined })
     }
   })
 }
@@ -250,7 +247,7 @@ const actions = computed<CommonButtonOption[]>(() => [
 
       <div v-if="avatarImage" class="flex w-full flex-col items-center justify-center">
         <Cropper
-          class="mt-4 mb-4 !max-h-[250px] !max-w-[400px]"
+          class="my-4 max-h-[250px]! max-w-[400px]!"
           :src="avatarImage.content"
           :stencil-props="{
             aspectRatio: 1,

@@ -1,7 +1,7 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
-import { NetworkStatus } from '@apollo/client/core'
-import { useSubscription } from '@vue/apollo-composable'
+import { NetworkStatus } from '@apollo/client'
+import { useSubscription } from '@vue/apollo-composable/compat'
 import { createMockSubscription } from 'mock-apollo-client'
 import { effectScope } from 'vue'
 
@@ -11,8 +11,10 @@ import type {
   SampleUpdatedSubscriptionVariables,
 } from '#tests/fixtures/graphqlSampleTypes.ts'
 import createMockClient from '#tests/support/mock-apollo-client.ts'
+import { waitForNextTick } from '#tests/support/utils.ts'
 
 import { useNotifications } from '#shared/components/CommonNotifications/index.ts'
+import { GraphQLErrorTypes } from '#shared/types/error.ts'
 
 import SubscriptionHandler from '../SubscriptionHandler.ts'
 
@@ -34,6 +36,16 @@ const subscriptionSampleErrorResult = {
     {
       message: 'GraphQL Error',
       extensions: { type: 'Exceptions::UnknownError' },
+    },
+  ],
+}
+
+const subscriptionSampleNotAuthorizedErrorResult = {
+  networkStatus: NetworkStatus.error,
+  errors: [
+    {
+      message: 'Authentication required',
+      extensions: { type: 'Exceptions::NotAuthorized' },
     },
   ],
 }
@@ -247,6 +259,68 @@ describe('SubscriptionHandler', () => {
             message: 'GraphQL Error',
           })
         })
+      })
+
+      it('no notification is triggered for an authentication error, even when the error callback asks for one', () => {
+        scope.run(() => {
+          const { notifications } = useNotifications()
+
+          const subscriptionHandlerObject = new SubscriptionHandler(sampleSubscription({ id: 1 }), {
+            // Error callbacks are usually written as a filter for other error
+            //  types, which must not switch the notification on again.
+            errorCallback: (error) => error.type !== GraphQLErrorTypes.Forbidden,
+          })
+
+          mockSubscription.next(subscriptionSampleNotAuthorizedErrorResult)
+
+          expect(subscriptionHandlerObject.operationError().value).toBeTruthy()
+
+          // Checked by message instead of by count, because the examples of this
+          //  file share one effect scope and therefore leak notifications.
+          expect(notifications.value.map((notification) => notification.message)).not.toContain(
+            'Authentication required',
+          )
+        })
+      })
+    })
+  })
+
+  describe('restart', () => {
+    beforeEach(() => {
+      mockClient()
+    })
+
+    it('closes the running subscription and opens a new one', async () => {
+      await scope.run(async () => {
+        const openedSubscriptions: IMockSubscription[] = []
+        const subscriptionHandlerSpy = vi.fn(() => {
+          const subscription = createMockSubscription()
+          openedSubscriptions.push(subscription)
+          return subscription
+        })
+
+        createMockClient([
+          { operationDocument: SampleTypedSubscriptionDocument, handler: subscriptionHandlerSpy },
+        ])
+
+        const subscriptionHandlerObject = new SubscriptionHandler(sampleSubscription({ id: 1 }))
+        const resultCallbackSpy = vi.fn()
+        subscriptionHandlerObject.onResult((result) => resultCallbackSpy(result))
+
+        expect(subscriptionHandlerSpy).toHaveBeenCalledTimes(1)
+
+        subscriptionHandlerObject.restart()
+        await waitForNextTick()
+
+        expect(subscriptionHandlerSpy).toHaveBeenCalledTimes(2)
+
+        openedSubscriptions[0].next({ data: subscriptionSampleResult })
+
+        expect(resultCallbackSpy).not.toHaveBeenCalled()
+
+        openedSubscriptions[1].next({ data: subscriptionSampleResultUpdated })
+
+        expect(resultCallbackSpy).toHaveBeenCalledWith({ data: subscriptionSampleResultUpdated })
       })
     })
   })

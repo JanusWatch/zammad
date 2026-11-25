@@ -134,6 +134,18 @@ RSpec.describe ExternalCredential::MicrosoftGraph do
           expect(existing_channel.reload.options.dig(:outbound, :options, :user)).to eq('zammad@outlook.com')
         end
       end
+
+      context 'when reauthenticating a shared mailbox channel', :aggregate_failures do
+        let(:shared_mailbox)   { 'shared@example.com' }
+        let(:existing_channel) { create(:microsoft_graph_channel, microsoft_user: email_address, microsoft_shared_mailbox: shared_mailbox) }
+
+        it 'keeps the shared mailbox for both inbound and outbound' do
+          described_class.link_account(request_token, authorization_payload.merge(channel_id: existing_channel.id))
+
+          expect(existing_channel.reload.options.dig(:inbound, :options, :shared_mailbox)).to eq(shared_mailbox)
+          expect(existing_channel.reload.options.dig(:outbound, :options, :shared_mailbox)).to eq(shared_mailbox)
+        end
+      end
     end
 
     context 'when running as an online service with a multi_tenant_app credential (PKCE)' do
@@ -434,6 +446,13 @@ RSpec.describe ExternalCredential::MicrosoftGraph do
   end
 
   describe '.user_info' do
+    it 'extracts user information from an unpadded base64url encoded id_token' do
+      payload = Base64.urlsafe_encode64(JSON.generate({ email: 'j.mueller@example.com', name: 'Jürgen Müller?' }), padding: false)
+
+      info = described_class.user_info("header.#{payload}.signature")
+      expect(info).to include(email: 'j.mueller@example.com', name: 'Jürgen Müller?')
+    end
+
     it 'extracts user information from id_token' do
       info = described_class.user_info(id_token)
       expect(info[:email]).to eq(email_address)

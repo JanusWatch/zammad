@@ -1,6 +1,6 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
-import { getByAltText, queryByAltText, waitFor } from '@testing-library/vue'
+import { fireEvent, getByAltText, queryByAltText, waitFor } from '@testing-library/vue'
 import { flushPromises } from '@vue/test-utils'
 
 import { renderComponent } from '#tests/support/components/index.ts'
@@ -91,6 +91,21 @@ describe('component for displaying text article', () => {
     })
   })
 
+  // Browsers do not suppress pointer events on disabled buttons, unlike clicks.
+  it('shows the article actions trigger busy and blocked while an action is pending', async () => {
+    const view = renderArticleBubble({ actionPending: true })
+
+    const trigger = view.getByRole('button', { name: 'Article actions' })
+
+    expect(trigger).toHaveAttribute('aria-busy', 'true')
+    expect(trigger).toBeDisabled()
+    expect(view.getByIconName('loading')).toBeInTheDocument()
+
+    await fireEvent.pointerDown(trigger)
+
+    expect(view.emitted()).not.toHaveProperty('show-context')
+  })
+
   it('renders basic stuff', async () => {
     const view = renderArticleBubble()
 
@@ -153,7 +168,7 @@ describe('component for displaying text article', () => {
 
     const content = view.getByTestId('article-content')
 
-    Object.defineProperty(content, 'clientHeight', {
+    Object.defineProperty(content, 'scrollHeight', {
       value: 900,
     })
 
@@ -189,7 +204,7 @@ describe('component for displaying text article', () => {
     const content = view.getByTestId('article-content')
     const signature = view.getByTestId('signature')
 
-    Object.defineProperty(content, 'clientHeight', {
+    Object.defineProperty(content, 'scrollHeight', {
       value: 200,
     })
     Object.defineProperty(signature, 'offsetTop', {
@@ -410,12 +425,7 @@ describe('links handling', () => {
   beforeEach(() => {
     vi.mocked(isStandalone).mockReturnValue(false)
     window.open = open
-    Object.defineProperty(window, 'location', {
-      value: {
-        ...window.location,
-        pathname: '/mobile',
-      },
-    })
+    jsdom.reconfigure({ url: 'http://localhost:3000/mobile' })
   })
 
   const clickLink = async (href: string, target = '') => {

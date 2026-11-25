@@ -3,6 +3,27 @@
 require 'rails_helper'
 
 RSpec.describe ApplicationController::HasDownload::DownloadFile do
+  # The JavaScript MIME types from the HTML specification, all of which a browser
+  #   executes when a script response is labeled with them.
+  javascript_content_types = %w[
+    application/ecmascript
+    application/javascript
+    application/x-ecmascript
+    application/x-javascript
+    text/ecmascript
+    text/javascript
+    text/javascript1.0
+    text/javascript1.1
+    text/javascript1.2
+    text/javascript1.3
+    text/javascript1.4
+    text/javascript1.5
+    text/jscript
+    text/livescript
+    text/x-ecmascript
+    text/x-javascript
+  ]
+
   subject(:download_file) { described_class.new(stored_file.id, disposition: 'inline') }
 
   let(:file_content_type) { 'image/jpeg' }
@@ -46,6 +67,18 @@ RSpec.describe ApplicationController::HasDownload::DownloadFile do
 
         it_behaves_like 'forcing disposition to attachment'
       end
+
+      javascript_content_types.each do |javascript_content_type|
+        context "with JavaScript content type #{javascript_content_type}" do
+          let(:file_content_type) { javascript_content_type }
+
+          it_behaves_like 'forcing disposition to attachment'
+
+          it 'serves the file as binary' do
+            expect(download_file.content_type).to eq('application/octet-stream')
+          end
+        end
+      end
     end
 
     context "with given object dispostion 'attachment'" do
@@ -67,6 +100,28 @@ RSpec.describe ApplicationController::HasDownload::DownloadFile do
 
       it 'check content type' do
         expect(download_file.content_type).to eq('application/octet-stream')
+      end
+    end
+  end
+
+  describe '#resized_content' do
+    context 'with not resizable file' do
+      it 'returns nil' do
+        expect(download_file.resized_content('preview')).to be_nil
+      end
+    end
+
+    context 'with image content type' do
+      let(:file_content_type) { 'image/jpg' }
+      let(:file_data)         { Rails.root.join('test/data/upload/upload2.jpg').binread }
+      let(:file_name)         { 'image.jpg' }
+
+      it 'returns nil without view type' do
+        expect(download_file.resized_content(nil)).to be_nil
+      end
+
+      it 'returns resized content for the preview' do
+        expect(download_file.resized_content('preview')).to be_present.and not_eq(file_data)
       end
     end
   end

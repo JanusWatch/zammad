@@ -11,6 +11,7 @@ class Ticket::Article < ApplicationModel
   include CanCsvImport
   include CanCloneAttachments
   include HasObjectManagerAttributes
+  include HasExcerpt
 
   include Ticket::Article::Assets
   include Ticket::Article::PreserveContextAfterTransaction
@@ -100,30 +101,33 @@ class Ticket::Article < ApplicationModel
   end
 
   # Replaces cid: references to images in HTML articles.
-  # Returns the modified body and the remaining attachments (without inline attachments ).
+  # Returns the modified body, the remaining attachments (without inline attachments) and the inline attachments.
   # If the article does not need modification, the original body and attachments are returned.
   #
   # @param article [Ticket::Article] the article for which to replace the URLs
-  # @return [Array(String, Array<Attachment>)] the modified body and the remaining attachments
+  # @param body [String] a stand-in for the article body, e.g. its translation; the article is
+  #   not modified
+  # @param attachments [Array<Store>] the article's files, where the caller loaded them already; read once otherwise
+  # @return [Array(String, Array<Attachment>, Array<Attachment>)] the modified body, the remaining attachments and the inline attachments
   #
   # Example usage:
-  # body, attachments = Ticket::Article.insert_urls(article)
-  def self.insert_urls(article)
-    if article.attachments.blank? ||
+  # body, attachments, inline_attachments = Ticket::Article.insert_urls(article)
+  def self.insert_urls(article, body = article.body, attachments: article.attachments.to_a)
+    if attachments.blank? ||
        !article.content_type.match?(%r{text/html}i) ||
-       article.body !~ %r{<img}i
-      return [article.body, article.attachments]
+       body !~ %r{<img}i
+      return [body, attachments, []]
     end
 
     inline_attachments = {}
 
-    new_body = article.body.gsub(%r{(<img[[:space:]](|.+?)src=")cid:(.+?)"(|.+?)>}im) do |item|
+    new_body = body.gsub(%r{(<img[[:space:]](|.+?)src=")cid:(.+?)"(|.+?)>}im) do |item|
       tag_start = $1
       cid = $3
       tag_end = $4
       replace = item
 
-      file = article.attachments.find do |file|
+      file = attachments.find do |file|
         content_id = file.preferences['Content-ID']
         content_id == cid || content_id == "<#{cid}>"
       end
@@ -136,9 +140,9 @@ class Ticket::Article < ApplicationModel
       replace
     end
 
-    new_attachments = article.attachments.reject { inline_attachments[it.id] }
+    new_attachments, inline = attachments.partition { !inline_attachments[it.id] }
 
-    [new_body, new_attachments]
+    [new_body, new_attachments, inline]
   end
 
 =begin
@@ -241,6 +245,12 @@ get body as text with quote sign "> " at the beginning of each line
     body_as_text.word_wrap.message_quote
   end
 
+  # Not has_excerpt :body — that would always run html2text, while the body's
+  #   content_type decides whether it is HTML at all.
+  def body_excerpt(**)
+    excerpt_text(body_as_text(link_style: :plain), **)
+  end
+
 =begin
 
 get article as raw (e. g. if it's a email, the raw email)
@@ -308,11 +318,12 @@ returns
     attributes = super
     add_time_unit_to_attributes(attributes)
 
-    new_body, _new_attachments = Ticket::Article.insert_urls(self)
+    new_body, new_attachments, inline_attachments = Ticket::Article.insert_urls(self)
     attributes['body'] = new_body
+    attributes['attachments'] = new_attachments.map(&:attributes_for_display)
 
-    # REST API clients rely on inline attachments being listed here, keep them (#6254)
-    attributes['attachments'] = attachments.map(&:attributes_for_display)
+    # REST API clients rely on inline attachments being listed, keep them in a dedicated key (#6254)
+    attributes['inline_attachments'] = inline_attachments.map(&:attributes_for_display)
     attributes['body_rendering_error'] = body_rendering_error
 
     attributes
@@ -334,10 +345,13 @@ returns
   def attributes_with_association_ids
     attributes = super
 
-    new_body, new_attachments = Ticket::Article.insert_urls(self)
+    new_body, new_attachments, inline_attachments = Ticket::Article.insert_urls(self)
 
     attributes['body'] = new_body
     attributes['attachments'] = new_attachments.map(&:attributes_for_display)
+
+    # REST API clients rely on inline attachments being listed, keep them in a dedicated key (#6254)
+    attributes['inline_attachments'] = inline_attachments.map(&:attributes_for_display)
     attributes['body_rendering_error'] = body_rendering_error
 
     attributes

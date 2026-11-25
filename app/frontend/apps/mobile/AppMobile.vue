@@ -12,7 +12,8 @@ import useAppMaintenanceCheck from '#shared/composables/useAppMaintenanceCheck.t
 import useMetaTitle from '#shared/composables/useMetaTitle.ts'
 import { useOnEmitter } from '#shared/composables/useOnEmitter.ts'
 import usePushMessages from '#shared/composables/usePushMessages.ts'
-import { initializeDefaultObjectAttributes } from '#shared/entities/object-attributes/composables/useObjectAttributes.ts'
+import { useUnknownAddressDetection } from '#shared/composables/useUnknownAddressDetection.ts'
+import { initializeDefaultEntityAttributes } from '#shared/entities/core/attributes/composables/useEntityAttributes.ts'
 import { useApplicationStore } from '#shared/stores/application.ts'
 import { useAuthenticationStore } from '#shared/stores/authentication.ts'
 import { useLocaleStore } from '#shared/stores/locale.ts'
@@ -22,6 +23,9 @@ import { registerSW } from '#shared/sw/register.ts'
 import CommonConfirmation from '#mobile/components/CommonConfirmation/CommonConfirmation.vue'
 import CommonImageViewer from '#mobile/components/CommonImageViewer/CommonImageViewer.vue'
 import { useConnection } from '#mobile/composables/useConnection.ts'
+import { usePushNotificationClick } from '#mobile/composables/usePushNotificationClick.ts'
+import { usePushNotificationsSync } from '#mobile/composables/usePushNotificationsSync.ts'
+import { SERVICE_WORKER_SCOPE } from '#mobile/sw/registration.ts'
 
 import { useTicketOverviewsStore } from './entities/ticket/stores/ticketOverviews.ts'
 
@@ -44,11 +48,15 @@ onMounted(() => {
 
 const updateServiceWorker = registerSW({
   path: '/mobile/sw.js',
-  scope: '/mobile/',
+  scope: SERVICE_WORKER_SCOPE,
 })
 
 useAppMaintenanceCheck({ onNeedRefresh: () => updateServiceWorker(true) })
+useUnknownAddressDetection()
 usePushMessages()
+
+usePushNotificationClick()
+usePushNotificationsSync()
 
 // Add a check for authenticated changes (e.g. login/logout in a other
 // browser tab or maintenance mode switch).
@@ -85,7 +93,7 @@ watch(
     if (!newValue || oldValue) return
 
     useTicketOverviewsStore()
-    initializeDefaultObjectAttributes()
+    initializeDefaultEntityAttributes()
   },
   { immediate: true },
 )

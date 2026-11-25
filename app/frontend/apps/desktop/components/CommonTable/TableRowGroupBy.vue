@@ -3,8 +3,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import ObjectAttributeContent from '#shared/components/ObjectAttributes/ObjectAttribute.vue'
-import type { ObjectAttribute } from '#shared/entities/object-attributes/types/store.ts'
+import EntityAttributeContent from '#shared/components/EntityAttributes/EntityAttribute.vue'
+import type { EntityAttribute } from '#shared/entities/core/attributes/types/store.ts'
 
 import CommonDivider from '#desktop/components/CommonDivider/CommonDivider.vue'
 
@@ -37,10 +37,10 @@ const completedGroup = computed(() => {
     <td :colspan="tableColumnLength">
       <CommonDivider class="mt-2 mb-1 group-first:mt-0" />
       <div class="h-10 px-2.5 py-1">
-        <CommonLabel class="cursor-default truncate text-stone-200! dark:text-neutral-500!">
-          <ObjectAttributeContent
+        <CommonLabel class="cursor-default truncate text-muted!">
+          <EntityAttributeContent
             mode="table"
-            :attribute="attribute as unknown as ObjectAttribute"
+            :attribute="attribute as unknown as EntityAttribute"
             :object="item"
           />
           <CommonBadge class="ms-0.5 leading-snug font-bold" rounded size="xs" variant="info">

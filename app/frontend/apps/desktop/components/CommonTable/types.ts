@@ -1,7 +1,7 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
 import type { Props as CommonLinkProps } from '#shared/components/CommonLink/CommonLink.vue'
-import type { ObjectAttribute } from '#shared/entities/object-attributes/types/store.ts'
+import type { EntityAttribute } from '#shared/entities/core/attributes/types/store.ts'
 import type { EnumObjectManagerObjects, EnumOrderDirection } from '#shared/graphql/types.ts'
 
 import type { MenuItem } from '#desktop/components/CommonPopoverMenu/types.ts'
@@ -21,6 +21,7 @@ type TableHeaderPreference = {
   noResize?: boolean
   displayWidth?: number
   noSorting?: boolean
+  minimumWidth?: number
 }
 
 type TableColumnPreference = {
@@ -56,6 +57,8 @@ export interface TableAdvancedItem {
   }
 }
 
+export type TableRowClass = string | string[] | Record<string, boolean>
+
 interface BaseTableProps {
   actions?: MenuItem[]
   caption: string
@@ -90,8 +93,8 @@ export interface TableAttribute {
     }
     tooltip?: (item: TableAdvancedItem) => string | undefined
   }
-  dataType: ObjectAttribute['dataType']
-  dataOption?: ObjectAttribute['dataOption']
+  dataType: EntityAttribute['dataType']
+  dataOption?: EntityAttribute['dataOption']
 }
 
 export interface AdvancedTableProps extends BaseTableProps {
@@ -104,7 +107,13 @@ export interface AdvancedTableProps extends BaseTableProps {
 
   attributes?: TableAttribute[]
   attributeExtensions?: Record<string, Partial<TableAttribute>>
-  object?: EnumObjectManagerObjects
+  /**
+   * Do not offer sorting for columns which display the value of a related record.
+   * Needed for the Elasticsearch-based search, which can only sort them by the raw
+   * reference (e.g. `customer_id`) and not by the displayed value.
+   */
+  disableRelationSorting?: boolean
+  entity?: EnumObjectManagerObjects
   /**
    * Used to set a default selected row
    * Is not used for checkbox
@@ -124,6 +133,11 @@ export interface AdvancedTableProps extends BaseTableProps {
 
   onClickRow?: (tableItem: TableAdvancedItem) => void
 
+  /**
+   * Additional classes for a row, e.g. to highlight or dim it depending on the item
+   */
+  rowClass?: (tableItem: TableAdvancedItem) => TableRowClass
+
   reachedScrollTop?: boolean
 
   onLoadMore?: () => Awaitable<void>
@@ -138,11 +152,17 @@ export interface AdvancedTableProps extends BaseTableProps {
   orderDirection?: EnumOrderDirection
 
   isSorting?: boolean
+
+  dynamicRowHeight?: boolean
 }
 
 export interface ListTableProps<T> {
   tableId: string
   headers: string[]
+  /**
+   * Do not offer sorting for columns which display the value of a related record.
+   */
+  disableRelationSorting?: boolean
   orderDirection?: EnumOrderDirection
   orderBy?: string
   groupBy?: string

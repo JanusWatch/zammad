@@ -3,7 +3,7 @@
 <script setup lang="ts">
 import { computed, ref, useTemplateRef } from 'vue'
 
-import ObjectAttributes from '#shared/components/ObjectAttributes/ObjectAttributes.vue'
+import EntityAttributes from '#shared/components/EntityAttributes/EntityAttributes.vue'
 import { useReducedMotion } from '#shared/composables/useReducedMotion.ts'
 import { useUserDetail } from '#shared/entities/user/composables/useUserDetail.ts'
 import { useUserEntity } from '#shared/entities/user/composables/useUserEntity.ts'
@@ -46,7 +46,7 @@ const chartInstance = useTemplateRef('chart')
 const {
   user,
   loadingWithoutCachedResult,
-  objectAttributes,
+  entityAttributes,
   secondaryOrganizations,
   fetchMoreSecondaryOrganizations,
 } = useUserDetail(
@@ -156,7 +156,7 @@ const scrollTo = (position: 'start' | 'end' = 'end') => {
                 :label="__('Secondary organizations')"
                 :entity="secondaryOrganizations"
                 label-size="medium"
-                label-class="text-black! dark:text-white! mb-2.5"
+                label-class="text-contrast! mb-2.5"
                 label-tag="h2"
                 list-class="grid grid-cols-2 gap-3"
                 has-popover
@@ -164,8 +164,8 @@ const scrollTo = (position: 'start' | 'end' = 'end') => {
                 @load-more="fetchMoreSecondaryOrganizations"
               />
             </CommonSectionContainer>
-            <ObjectAttributes
-              :attributes="objectAttributes"
+            <EntityAttributes
+              :attributes="entityAttributes"
               :object="user"
               :skip-attributes="['firstname', 'lastname', 'organization_id', 'organization_ids']"
               :inline-editable="{ note: useUserNoteUpdateMutation }"

@@ -35,9 +35,32 @@ The CoffeeScript frontend uses REST controllers.
 
 ## General Guidelines
 
-- All new files except Markdown files (`*.md`) must include the Zammad copyright header.
+- Add the Zammad copyright header to new, manually authored source files. Exempt documentation,
+  templates (`*.eco`, `*.erb`), GraphQL documents, generated or third-party files, lockfiles, and
+  non-source fixtures, data, configuration and assets. For other file types, follow the applicable
+  lint configuration and comparable files.
 - Never edit translation files (`i18n/*.po`) directly —
   translations are managed via translations.zammad.org.
+
+### Code Comments
+
+Comment only what the code cannot say itself: a non-obvious _why_, a
+workaround with its reason, a spec/protocol quirk, or a deliberate
+deviation from a pattern. Otherwise add no comment — clear naming and
+small methods are preferred over explanation.
+
+- One or two short lines, in the style of the surrounding file.
+- Never restate what the next line does, summarise a block, label
+  sections (`# --- setup ---`), or narrate a change (`# new`, `# was …`,
+  `# fixed`).
+- Keep out reasoning that belongs in the commit message, the issue or
+  the MR description.
+- Never reference an issue from an internal repository (`coordination-*`) —
+  this repository is publicly mirrored. Reference a public `zammad/zammad`
+  issue, or state the reason without a link.
+- Never mark a fix for a security vulnerability as such — this repository
+  is publicly mirrored, and the comment points at the vulnerable code in
+  installations that are not updated yet.
 
 ### UI Principles
 
@@ -47,14 +70,22 @@ The CoffeeScript frontend uses REST controllers.
 - Translatable strings: use complete, meaningful source strings,
   sentence case for English source strings, and check for existing
   near-duplicate strings before adding new ones.
+- Red marks the point of no return: `danger` and `remove` stay only on
+  controls that act immediately. A trigger that only opens a confirmation
+  dialog or a confirming flyout is not red: a button becomes `tertiary`
+  with an icon naming the action (`trash3` for delete and discard,
+  `arrow-counterclockwise` for reset), a menu item carries no variant, a
+  `remove` icon button keeps its icon and takes the variant UX names per
+  place. The decisive button in the dialog or flyout is `danger`.
 
 ## Essential Commands
 
 ### Backend
 
 ```bash
-RAILS_ENV=test VITE_TEST_MODE=1 bundle exec rspec spec/path/to/file_spec.rb  # Run specific RSpec test
-bundle exec rubocop --autocorrect app/path/to/file.rb                        # Lint specific Ruby file(s)
+RAILS_ENV=test VITE_TEST_MODE=1 bundle exec rspec spec/path/to/file_spec.rb                                 # Run specific RSpec test
+TEST_BROWSER_HEADLESS=1 RAILS_ENV=test VITE_TEST_MODE=1 bundle exec rspec spec/system/path/to/file_spec.rb  # Run specific system spec (always headless)
+bundle exec rubocop --autocorrect app/path/to/file.rb                                                       # Lint specific Ruby file(s)
 ```
 
 ### Frontend
@@ -62,11 +93,39 @@ bundle exec rubocop --autocorrect app/path/to/file.rb                        # L
 Always use pnpm for frontend and cross-stack commands.
 
 ```bash
-pnpm test app/frontend/path/to/file.spec.ts # Run specific Vitest test
-pnpm lint                                   # Run all linters
-pnpm generate-graphql-api                   # Regenerate GraphQL types after schema changes
-pnpm generate-setting-types                 # Regenerate Config types after setting changes
+pnpm test --run app/frontend/path/to/file.spec.ts # Run specific Vitest test (never add `--`)
+pnpm lint                                         # Run all linters
+pnpm generate-graphql-api                         # Regenerate GraphQL types after schema changes
+pnpm generate-setting-types                       # Regenerate Config types after setting changes
 ```
+
+### Development stack
+
+A browser-clickable instance for this checkout. Start it via `bin/dev` rather
+than `forego` directly, and wait for it to answer before using it.
+
+```bash
+RAILS_ENV=development bundle exec rake db:create zammad:bootstrap:reset  # once per checkout
+bin/dev                                                                  # does not exit; run it in the background
+```
+
+It serves on `localhost:3000`, with the websocket server on `6042` and Vite on
+`3036`. Export `ZAMMAD_RAILS_PORT`, `ZAMMAD_WEBSOCKET_PORT` and
+`VITE_RUBY_PORT` before `bin/dev` to move them — the whole stack has to agree
+on them, so export, do not set them per process.
+The `with-caddy` devcontainer variant additionally serves the whole stack on
+`localhost:8080` through a reverse proxy, for TLS tunnels; see its README.
+
+`zammad:bootstrap:reset` migrates, seeds and runs the auto wizard, which creates
+`admin@example.com` / `test`. Plain `zammad:db:init` skips the wizard and leaves
+the browser on the getting-started screen. Never run `zammad:bootstrap:init` or
+`zammad:setup:db_config`: they overwrite `config/database.yml` and prompt on
+stdin, which hangs a non-interactive session.
+
+The test suite uses its own ports (`3001` and `6043`) and its own database, so
+it can run while the stack is up. Several checkouts, however, share the
+development database and Redis — only one stack per machine unless
+`DATABASE_URL` and `REDIS_URL` say otherwise.
 
 ## Development Lifecycle
 
@@ -75,11 +134,11 @@ GitHub hosts a read-only mirror. The agent uses the **GitHub MCP server** for
 issues and **`glab` CLI** for GitLab operations.
 
 Stories are refined and broken down into task issues before this lifecycle
-starts (`/refine-story` → `/plan-story`). Bugs skip that and enter it directly.
+starts (`/zammad-refine-story` → `/zammad-plan-story`). Bugs skip that and enter it directly.
 
-Lifecycle: Understand → Research → Plan → Branch (`/prepare-issue-branch`) →
-Implement → Test → Commit → Review → MR (`/create-mr`) → Cherry-pick
-(`/cherry-pick-to-stable`)
+Lifecycle: Understand → Research → Plan → Branch (`/zammad-prepare-issue-branch`) →
+Implement → Test → Review → Commit → MR (`/zammad-create-mr`) → Cherry-pick
+(`/zammad-cherry-pick-to-stable`)
 
 See `.dev/agent_docs/development_workflow.md` for the full lifecycle and
 workflow rules.
@@ -101,17 +160,24 @@ You MUST read the relevant file(s) below before responding when working on that 
 - `.dev/agent_docs/testing_services_and_graphql.md` — How to split spec
   coverage between a service and the query, mutation or subscription that
   calls it
+- `.dev/agent_docs/ruby_patterns.md` — Conventions for every Ruby class or
+  module in `app/` and `lib/`: instance state and readers, acronyms in constant
+  names, text from outside, timeouts around a caller's block
 - `.dev/agent_docs/service_patterns.md` — Service object conventions and structure
 - `.dev/agent_docs/knowledge_base_patterns.md` — Knowledge base rules for the
   new stack (Vue/GraphQL/services) only: the single active knowledge base and
   the deliberate exceptions to it
 - `.dev/agent_docs/database_migrations.md` — How to write migrations and work
   with seeds
+- `.dev/agent_docs/code_analysis.md` — The fallow hooks that audit a branch on
+  their own and what to do when one blocks; when to run fallow yourself: finding
+  an existing helper before writing one, tracing an "unused" export before
+  deleting it
 
 ## CodeGraph
 
 In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo
-root), reach for it BEFORE grep/find or reading files when you need to understand
+root), reach for it before grep/find or reading files when you need to understand
 or locate code:
 
 - **MCP tool** (when available): `codegraph_explore` answers most code questions
@@ -120,14 +186,9 @@ or locate code:
   in the query to read its current line-numbered source. If it's listed but
   deferred, load it by name via tool search.
 - **Shell** (always works): `pnpm exec codegraph explore "<symbol names or question>"`
-  prints the same output — `codegraph` is a local dev dependency, so the bare
-  command is not on `PATH`.
+  prints the same output using the repository-pinned CodeGraph version.
 
-Setup is per developer: `pnpm codegraph:install` indexes this checkout and registers
-the server with the agent harnesses it finds (Claude Code, Cursor, Codex CLI,
-opencode, …). Say yes when it offers to put the CLI on `PATH`: that is how they
-launch it. `pnpm codegraph:uninstall` reverts it. Nothing lands in a commit —
-`.codegraph/` and `.mcp.json` are gitignored, and the harness registration lives in
-each tool's own config outside the repo.
-
-If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is the user's decision.
+If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is the
+user's decision. If they ask to initialize it, run `pnpm codegraph:init`. Developer
+setup and removal are documented in
+`doc/developer_manual/development_environment/codegraph-setup.md`.
