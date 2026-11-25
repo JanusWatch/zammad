@@ -1,5 +1,6 @@
 # Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
+require 'graphql/gql/shared_examples/fails_if_forbidden'
 require 'graphql/gql/shared_examples/fails_if_unauthenticated'
 
 module ZammadSpecSupportGraphql
@@ -16,10 +17,16 @@ module ZammadSpecSupportGraphql
 
       attr_reader :mock_broadcasted_messages
 
+      # A real channel belongs to a connection which decides whether it may still be served.
+      attr_accessor :connection
+
       def stream_from(stream_name, coder: nil, &block)
-        # Rails uses `coder`, we don't
         block ||= ->(msg) { @mock_broadcasted_messages << msg }
-        MockActionCable.mock_stream_for(stream_name).add_mock_channel(self, block)
+
+        # Like Rails, hand the message over encoded and decoded again when the stream asks for a coder.
+        handler = coder ? ->(msg) { block.call(coder.decode(ActiveSupport::JSON.encode(msg))) } : block
+
+        MockActionCable.mock_stream_for(stream_name).add_mock_channel(self, handler)
       end
 
       def mock_broadcasted_at(index)
@@ -230,13 +237,13 @@ RSpec.configure do |config|
 
   config.prepend_before(:each, type: :graphql) do
     ZammadSpecSupportGraphql::MockActionCable.clear_mocks
-    Gql::ZammadSchema.subscriptions = GraphQL::Subscriptions::ActionCableSubscriptions.new(
-      action_cable: ZammadSpecSupportGraphql::MockActionCable, action_cable_coder: JSON, schema: Gql::ZammadSchema
+    Gql::ZammadSchema.subscriptions = Gql::ActionCableSubscriptions.new(
+      action_cable: ZammadSpecSupportGraphql::MockActionCable, action_cable_coder: ActiveSupport::JSON, schema: Gql::ZammadSchema
     )
   end
 
   config.append_after(:each, type: :graphql) do
-    Gql::ZammadSchema.subscriptions = GraphQL::Subscriptions::ActionCableSubscriptions.new(schema: Gql::ZammadSchema)
+    Gql::ZammadSchema.subscriptions = Gql::ActionCableSubscriptions.new(schema: Gql::ZammadSchema)
   end
 
   # This helper allows you to authenticate as a given user in :graphql specs

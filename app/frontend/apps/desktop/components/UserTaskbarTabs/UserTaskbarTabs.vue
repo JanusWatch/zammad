@@ -19,6 +19,7 @@ import CommonSectionCollapse from '#desktop/components/CommonSectionCollapse/Com
 import { useAnnouncer } from '#desktop/composables/accessibility/useAnnouncer.ts'
 import { useAccessibleDragAndDrop } from '#desktop/composables/dragAndDrop/useAccessibleDragAndDrop.ts'
 import { useKeyboardKeysForDragAndDrop } from '#desktop/composables/dragAndDrop/useKeyboardKeysForDragAndDrop.ts'
+import { provideActiveTaskbarTabEntityKey } from '#desktop/composables/useUserTaskbarTab.ts'
 import { useUserCurrentTaskbarItemListPrioMutation } from '#desktop/entities/user/current/graphql/mutations/userCurrentTaskbarItemListPrio.api.ts'
 import { useUserCurrentTaskbarTabsStore } from '#desktop/entities/user/current/stores/taskbarTabs.ts'
 
@@ -41,7 +42,10 @@ const {
   hasTaskbarTabs,
   taskbarTabContexts,
   loading,
+  activeTaskbarTabEntityKey,
 } = storeToRefs(taskbarTabStore)
+
+provideActiveTaskbarTabEntityKey(activeTaskbarTabEntityKey)
 
 const { getTaskbarTabTypePlugin } = taskbarTabStore
 
@@ -240,7 +244,7 @@ const { isTouchDevice } = useTouchDevice()
           id="user-taskbar-tabs-popover-button"
           ref="popoverTarget"
           v-tooltip="$t('List of all user taskbar tabs')"
-          class="text-neutral-400 hover:outline-blue-900"
+          class="text-neutral-400! hover:outline-blue-900"
           icon="card-list"
           size="large"
           variant="neutral"
@@ -312,7 +316,7 @@ const { isTouchDevice } = useTouchDevice()
                 :taskbar-tab-link="getTaskbarTabLink(tabEntityKey)"
                 :collapsed="collapsed"
                 :is-active="index === selectedItemIndex"
-                class="group/link peer-focus-visible:trl:pl-(--tab-remove-bar-button-width) focus-visible-app-default [--tab-remove-bar-button-width:2rem] group-hover/tab:ltr:pr-(--tab-remove-bar-button-width) peer-focus-visible:ltr:pr-(--tab-remove-bar-button-width) group-hover/tab:rtl:pl-(--tab-remove-bar-button-width)"
+                class="group/link focus-visible-app-default [--tab-remove-bar-button-width:2rem] group-hover/tab:ltr:pr-(--tab-remove-bar-button-width) peer-focus-visible:ltr:pr-(--tab-remove-bar-button-width) group-hover/tab:rtl:pl-(--tab-remove-bar-button-width) peer-focus-visible:rtl:pl-(--tab-remove-bar-button-width)"
                 :class="{
                   'rounded-none group-first/tab:rounded-t-[10px] group-last/tab:rounded-b-[10px] focus-visible:-outline-offset-1!':
                     collapsed,

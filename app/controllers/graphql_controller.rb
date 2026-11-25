@@ -12,6 +12,9 @@ class GraphqlController < ApplicationController
     end
   }
 
+  # Nested inside the transaction handling, so what its final commit changes reaches every browser tab.
+  around_action :with_subscription_origin
+
   def execute
     if params[:_json]
       return render json: multiplex
@@ -55,9 +58,17 @@ class GraphqlController < ApplicationController
       sid:             session.id,
       current_user:    current_user && UserContext.new(current_user, token),
       current_user_id: current_user&.id,
-      # :controller is used by login/logout mutations and MUST NOT be used otherwise.
+      # :controller is used by login/logout mutations and the CSRF verification, and MUST NOT be used otherwise.
       controller:      self,
     }
+  end
+
+  def with_subscription_origin(&)
+    Gql::SubscriptionOrigin.with(
+      browser_tab_id:     request.headers['X-Zammad-Browser-Tab-Id'],
+      skip_subscriptions: request.headers['X-Zammad-Skip-Subscriptions'].to_s.split(','),
+      &
+    )
   end
 
   # Handle variables in form data, JSON body, or a blank value

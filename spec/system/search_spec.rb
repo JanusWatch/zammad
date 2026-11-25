@@ -66,7 +66,7 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
         end
 
         expect(page).to have_css('.bulkAction.no-sidebar')
-        expect(page).to have_no_selector('.bulkAction.no-sidebar.hide', visible: :all)
+        expect(page).to have_no_css('.bulkAction.no-sidebar.hide', visible: :all)
       end
 
       it 'shows bulkform when all checkbox is checked' do
@@ -75,7 +75,7 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
         end
 
         expect(page).to have_css('.bulkAction.no-sidebar')
-        expect(page).to have_no_selector('.bulkAction.no-sidebar.hide', visible: :all)
+        expect(page).to have_no_css('.bulkAction.no-sidebar.hide', visible: :all)
       end
 
       it 'hides bulkform when checkbox is unchecked' do
@@ -149,6 +149,43 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
 
           expect(page).to have_css('.batch-overlay-circle--top.js-batch-macro-circle')
             .and(have_css('.batch-overlay-circle--bottom.js-batch-assign-circle'))
+        end
+
+        context 'with priority icons enabled' do
+          let(:before_authenticate) { Setting.set('ui_ticket_priority_icons', true) }
+
+          it 'shows the ticket number in the dragged row' do
+            within(:active_content, '.main .table') do
+              element = page.find(:table_row, ticket_1.id).native
+              click_and_hold(element)
+              move_mouse_by(0, 5)
+              move_mouse_by(0, 7)
+            end
+
+            expect(page).to have_css('.batch-dragger', text: ticket_1.number)
+          ensure
+            release_mouse
+          end
+        end
+      end
+
+      context 'when a row on a non-ticket tab is dragged' do
+        let(:customer)            { create(:customer, firstname: 'Testing') }
+        let(:before_authenticate) { customer }
+
+        it 'does not show the batch actions' do
+          find('[data-tab-content=User]').click
+
+          within(:active_content, '.main .table') do
+            element = page.find(:table_row, customer.id).native
+            click_and_hold(element)
+            move_mouse_by(0, 5)
+            move_mouse_by(0, 7)
+          end
+
+          expect(page).to have_no_css('.batch-dragger', visible: :all)
+        ensure
+          release_mouse
         end
       end
     end
@@ -260,7 +297,7 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
         display_macro_batches ticket_1
 
         within :active_content do
-          expect(page).to have_no_selector('.batch-overlay-backdrop')
+          expect(page).to have_no_css('.batch-overlay-backdrop')
         end
       end
     end
@@ -281,7 +318,7 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
           display_macro_batches ticket_1
           within(:active_content) do
 
-            expect(page).to have_no_selector('.batch-overlay-macro-entry.small')
+            expect(page).to have_no_css('.batch-overlay-macro-entry.small')
           end
         end
       end
@@ -342,8 +379,7 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
     end
   end
 
-  # https://github.com/zammad/zammad/issues/5505
-  context 'when tickets are ordered by grroups' do
+  context 'when tickets are ordered by title' do
     let(:agent) { create(:agent, groups: Group.all) }
     let(:authenticate_user) { agent }
 
@@ -363,19 +399,25 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
     end
 
     it 'sorts correctly' do
-      # bug is most visible in descending order
-      find('.table-column-title', text: 'GROUP').click
-      find('.table-column-title', text: 'GROUP').click
+      # sort descending
+      find('.table-column-title', text: 'TITLE').click
+      find('.table-column-title', text: 'TITLE').click
 
       actual_ids = all('.js-tableBody tr.item').map { |row| row['data-id'].to_i }
 
-      # Elasticsearch does not guarantee a stable tie-break order for tickets sharing the
-      # same group, so only assert that the groups themselves are ordered correctly (all
-      # group_2 tickets before all group_1 tickets), not the exact order within a group.
-      expect(actual_ids.first(3)).to match_array([ticket_6, ticket_4, ticket_2].map(&:id))
-      expect(actual_ids.last(3)).to match_array([ticket_3, ticket_5, ticket_1].map(&:id))
+      expect(actual_ids).to eq([ticket_6, ticket_5, ticket_4, ticket_3, ticket_2, ticket_1].map(&:id))
     end
 
+    # Elasticsearch can only sort relations by their raw reference (e.g. customer_id)
+    # and not by the displayed value, so those columns are rendered without sorting.
+    it 'does not offer sorting for relation columns' do
+      expect(page).to have_css('th[data-column-key=title] .js-sort')
+
+      %w[customer_id owner_id group_id].each do |column|
+        expect(page).to have_css("th[data-column-key=#{column}]")
+        expect(page).to have_no_css("th[data-column-key=#{column}] .js-sort")
+      end
+    end
   end
 
   context 'Organization members' do
@@ -478,18 +520,27 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
       end
 
       it 'does switch search results properly' do
-        # clear: :backspace paces the clear+type sequence more naturally - the default
-        #   clear strategy has occasionally dropped the first typed character here.
-        page.find('.js-search').fill_in(with: '"Testing Ticket 1"', fill_options: { clear: :backspace })
-        expect(page.find('.js-tableBody')).to have_text('Testing Ticket 1')
-        expect(page.find('.js-tableBody')).to have_no_text('Testing Ticket 2')
-        expect(current_url).to include('Testing%20Ticket%201')
+        page.find('.js-search').fill_in(with: '"Testing Ticket 1"')
+        expect(page).to have_css('.js-tableBody', text: 'Testing Ticket 1')
+        expect(page).to have_no_css('.js-tableBody', text: 'Testing Ticket 2')
+        expect(page).to have_current_path(%r{Testing%20Ticket%201}, url: true)
 
         # switch by global search
-        page.find('.js-search').fill_in(with: '"Testing Ticket 2"', fill_options: { clear: :backspace })
-        expect(page.find('.js-tableBody')).to have_text('Testing Ticket 2')
-        expect(page.find('.js-tableBody')).to have_no_text('Testing Ticket 1')
-        expect(current_url).to include('Testing%20Ticket%202')
+        page.find('.js-search').fill_in(with: '"Testing Ticket 2"')
+        expect(page).to have_css('.js-tableBody', text: 'Testing Ticket 2')
+        expect(page).to have_no_css('.js-tableBody', text: 'Testing Ticket 1')
+        expect(page).to have_current_path(%r{Testing%20Ticket%202}, url: true)
+      end
+
+      it 'keeps input typed before the route of the previous key is executed' do
+        page.execute_script(<<~JS)
+          $('.js-search').val('Testing Ticket').trigger('keyup')
+          $('.js-search').val('Testing Ticket 2')
+        JS
+
+        # The results of the first key are rendered only after the route has been executed.
+        expect(page).to have_css('.js-tableBody', text: 'Testing Ticket 1')
+        expect(page).to have_field(class: 'js-search', with: 'Testing Ticket 2')
       end
     end
 
@@ -500,16 +551,16 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
       end
 
       it 'does switch search results properly' do
-        expect(page.find('.js-tableBody')).to have_text('Testing Ticket 1')
-        expect(page.find('.js-tableBody')).to have_no_text('Testing Ticket 2')
-        expect(current_url).to include('Testing%20Ticket%201')
+        expect(page).to have_css('.js-tableBody', text: 'Testing Ticket 1')
+        expect(page).to have_no_css('.js-tableBody', text: 'Testing Ticket 2')
+        expect(page).to have_current_path(%r{Testing%20Ticket%201}, url: true)
 
         # switch by global search
         fill_in id: 'global-search', with: '"Testing Ticket 2"'
         click_on 'Show Search Details'
-        expect(page.find('.js-tableBody')).to have_text('Testing Ticket 2')
-        expect(page.find('.js-tableBody')).to have_no_text('Testing Ticket 1')
-        expect(current_url).to include('Testing%20Ticket%202')
+        expect(page).to have_css('.js-tableBody', text: 'Testing Ticket 2')
+        expect(page).to have_no_css('.js-tableBody', text: 'Testing Ticket 1')
+        expect(page).to have_current_path(%r{Testing%20Ticket%202}, url: true)
       end
     end
 
@@ -519,15 +570,15 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
       end
 
       it 'does switch search results properly' do
-        expect(page.find('.js-tableBody')).to have_text('Testing Ticket 1')
-        expect(page.find('.js-tableBody')).to have_no_text('Testing Ticket 2')
-        expect(current_url).to include('Testing%20Ticket%201')
+        expect(page).to have_css('.js-tableBody', text: 'Testing Ticket 1')
+        expect(page).to have_no_css('.js-tableBody', text: 'Testing Ticket 2')
+        expect(page).to have_current_path(%r{Testing%20Ticket%201}, url: true)
 
         # switch by url
         visit '#search/"Testing Ticket 2"'
-        expect(page.find('.js-tableBody')).to have_text('Testing Ticket 2')
-        expect(page.find('.js-tableBody')).to have_no_text('Testing Ticket 1')
-        expect(current_url).to include('Testing%20Ticket%202')
+        expect(page).to have_css('.js-tableBody', text: 'Testing Ticket 2')
+        expect(page).to have_no_css('.js-tableBody', text: 'Testing Ticket 1')
+        expect(page).to have_current_path(%r{Testing%20Ticket%202}, url: true)
       end
     end
   end
@@ -570,7 +621,9 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
     end
 
     context 'when customer' do
-      let(:authenticate_user) { customer }
+      let(:authenticate_user)   { customer }
+      let(:customer_ticket)     { create(:ticket, customer: customer, group: Group.first, title: "Ticket of #{organizations[0].name}") }
+      let(:before_authenticate) { customer_ticket }
 
       before do
         fill_in id: 'global-search', with: organizations[0].name.to_s
@@ -578,7 +631,8 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
 
       it 'does not show any organizations in global search because only agents have access to it' do
         within '.global-search-result' do
-          expect(page).to have_no_text(organizations[0].name)
+          expect(page).to have_css('.nav-tab.ticket-popover', text: customer_ticket.title)
+          expect(page).to have_no_css('.nav-tab.organization')
         end
       end
     end
@@ -709,7 +763,6 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
 
   describe 'Admin user can not find user or organization in the search bar #4574' do
     let(:admin) { create(:admin_only) }
-    let(:agent)        { create(:agent, groups: [Group.first]) }
     let(:organization) { create(:organization, name: SecureRandom.uuid) }
     let(:customer)     { create(:customer, organization: organization, firstname: SecureRandom.uuid) }
     let(:ticket)       { create(:ticket, title: SecureRandom.uuid, customer: customer, group: Group.first) }
@@ -718,72 +771,21 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
       visit '#dashboard'
     end
 
-    context 'when customer' do
-      let(:before_authenticate) { organization && customer && ticket }
-      let(:authenticate_user) { customer }
-
-      it 'does find the ticket' do
-        fill_in id: 'global-search', with: ticket.title
-
-        expect(page.find('.global-search-menu')).to have_text(ticket.title)
-      end
-
-      it 'does not find the customer' do
-        fill_in id: 'global-search', with: customer.firstname
-
-        expect(page.find('.global-search-menu')).to have_no_text(customer.firstname)
-      end
-
-      it 'does not find the organization' do
-        fill_in id: 'global-search', with: organization.name
-
-        expect(page.find('.global-search-menu')).to have_no_text(organization.name)
-      end
-    end
-
-    context 'when agent' do
-      let(:before_authenticate) { organization && customer && ticket }
-      let(:authenticate_user) { agent }
-
-      it 'does find the ticket' do
-        fill_in id: 'global-search', with: ticket.title
-
-        expect(page.find('.global-search-menu')).to have_text(ticket.title)
-      end
-
-      it 'does find the customer' do
-        fill_in id: 'global-search', with: customer.firstname
-
-        expect(page.find('.global-search-menu')).to have_text(customer.firstname)
-      end
-
-      it 'does find the organization' do
-        fill_in id: 'global-search', with: organization.name
-
-        expect(page.find('.global-search-menu')).to have_text(organization.name)
-      end
-    end
-
+    # The search permissions of the other roles are covered by spec/services/service/search_spec.rb.
     context 'when admin only' do
       let(:authenticate_user) { admin }
       let(:before_authenticate) { organization && customer && ticket }
 
-      it 'does not find the ticket' do
-        fill_in id: 'global-search', with: ticket.title
-
-        expect(page.find('.global-search-menu')).to have_no_text(ticket.title)
-      end
-
-      it 'does find the customer' do
+      it 'finds the customer and the organization, but not the ticket' do
         fill_in id: 'global-search', with: customer.firstname
-
         expect(page.find('.global-search-menu')).to have_text(customer.firstname)
-      end
 
-      it 'does find the organization' do
         fill_in id: 'global-search', with: organization.name
-
         expect(page.find('.global-search-menu')).to have_text(organization.name)
+
+        fill_in id: 'global-search', with: ticket.title
+        expect(page.find('.global-search-menu')).to have_no_text(organization.name)
+        expect(page.find('.global-search-menu')).to have_no_text(ticket.title)
       end
     end
   end
@@ -999,7 +1001,7 @@ RSpec.describe 'Search', authenticated_as: :authenticate, searchindex: true, typ
 
         find('.js-tableBody tr:last-child td.table-checkbox').check('bulk', allow_label_click: true)
 
-        find('select[name=owner_id]').find('option:nth-child(2)').select_option
+        find('select[name=owner_id] option:nth-child(2)').select_option
         click '.js-confirm'
         click '.js-submit'
 

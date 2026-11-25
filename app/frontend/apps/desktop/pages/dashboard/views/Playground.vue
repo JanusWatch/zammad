@@ -55,6 +55,7 @@ import LayoutContent from '#desktop/components/layout/LayoutContent.vue'
 import SplitButton from '#desktop/components/SplitButton/SplitButton.vue'
 import ThemeSwitch from '#desktop/components/ThemeSwitch/ThemeSwitch.vue'
 import UserPopoverWithTrigger from '#desktop/components/User/UserPopoverWithTrigger.vue'
+import { useKnowledgeBaseAccess } from '#desktop/entities/knowledge-base/composables/useKnowledgeBaseAccess.ts'
 
 const alphabetOptions = computed(() =>
   [...Array(26).keys()].map((i) => ({
@@ -533,6 +534,8 @@ const buttonGroupOptions: CommonButtonItem[] = [
 
 const application = useApplicationStore()
 
+const { canBrowse: canBrowseKnowledgeBase } = useKnowledgeBaseAccess()
+
 // The second role shows a locked row: it inherits editor from the parent, so nothing below
 //   may override it.
 const kbPermissionRows: KnowledgeBasePermissionRow[] = [
@@ -676,16 +679,20 @@ const formSchema = defineFormSchema([
       `,
     },
   },
-  {
-    type: 'kbCategoryIcon',
-    name: 'kb_category_icon',
-    label: 'Knowledge Base Category Icon',
-    props: {
-      // Pinned, so the catalog does not depend on how the knowledge base is themed.
-      iconSet: 'FontAwesome',
-    },
-    value: 'f115',
-  },
+  ...(canBrowseKnowledgeBase.value
+    ? [
+        {
+          type: 'kbCategoryIcon',
+          name: 'kb_category_icon',
+          label: 'Knowledge Base Category Icon',
+          props: {
+            // Pinned, so the catalog does not depend on how the knowledge base is themed.
+            iconSet: 'FontAwesome',
+          },
+          value: 'f115',
+        },
+      ]
+    : []),
   {
     type: 'kbPermissions',
     name: 'kb_permissions',
@@ -702,7 +709,9 @@ const formSchema = defineFormSchema([
     type: 'externalDataSource',
     name: 'external_data_source',
     label: 'External Data Source',
-    object: EnumObjectManagerObjects.Ticket,
+    props: {
+      object: EnumObjectManagerObjects.Ticket,
+    },
     help: 'Please add external_data_source attribute on Ticket object. Otherwise this field will not work.',
   },
   {
@@ -783,18 +792,17 @@ const formSchema = defineFormSchema([
     },
   },
   {
-    name: 'date_1',
-    label: 'Date range',
-    type: 'date',
-    props: {
-      clearable: true,
-      range: true,
-    },
-  },
-  {
     name: 'datetime_0',
     label: 'Date/Time',
     type: 'datetime',
+    props: {
+      clearable: true,
+    },
+  },
+  {
+    name: 'daterange_0',
+    label: 'Date range',
+    type: 'daterange',
     props: {
       clearable: true,
     },
@@ -1606,7 +1614,7 @@ const { openFeedbackDialog } = useFeedbackDialog()
       <CommonSkeleton class="h-8 w-full" />
 
       Avatar example
-      <CommonSkeleton rounded class="h-8 w-8" />
+      <CommonSkeleton rounded class="size-8" />
 
       Table Skeleton
       <CommonTableSkeleton />
@@ -1719,8 +1727,8 @@ const { openFeedbackDialog } = useFeedbackDialog()
         <CommonAlert variant="info" dismissible class="mb-2.5">It's Friday! </CommonAlert>
         <CommonAlert variant="success" class="mb-2.5">
           <div class="flex flex-col gap-1.5">
-            <CommonLabel class="text-yellow-600!" size="large">Similar tickets found</CommonLabel>
-            <CommonLabel class="text-yellow-600!"
+            <CommonLabel class="text-green-500!" size="large">Similar tickets found</CommonLabel>
+            <CommonLabel class="text-green-500!"
               >Tickets with the same attributes were found.</CommonLabel
             >
             <ul class="list-inside list-disc">
@@ -1794,7 +1802,7 @@ const { openFeedbackDialog } = useFeedbackDialog()
             <div class="mb-1 flex grow flex-col gap-1">
               <div class="flex justify-between">
                 <CommonLabel size="small">Organizations</CommonLabel>
-                <CommonLabel class="text-stone-200 dark:text-neutral-500" size="small">
+                <CommonLabel class="text-muted!" size="small">
                   {{ progressBarValue }} of 100
                 </CommonLabel>
               </div>
@@ -2187,7 +2195,7 @@ const { openFeedbackDialog } = useFeedbackDialog()
           </template>
         </Form>
         <pre
-          class="flex flex-wrap gap-5 rounded-lg bg-blue-200 p-5 font-mono text-sm text-wrap text-gray-100 dark:bg-gray-700 dark:text-neutral-400"
+          class="flex flex-wrap gap-5 rounded-lg bg-blue-200 p-5 font-mono text-sm text-wrap text-normal dark:bg-gray-700"
         >
           {{ formValues }}</pre>
       </div>
@@ -2203,7 +2211,7 @@ const { openFeedbackDialog } = useFeedbackDialog()
         <div class="mb-4 w-96">
           <CommonTabGroup v-model="activeTab" :tabs="playgroundTabItems" select-first-by-default />
         </div>
-        <pre class="mb-6 rounded bg-blue-100 px-3 py-1 font-mono text-xs dark:bg-gray-700">
+        <pre class="mb-6 rounded-sm bg-blue-100 px-3 py-1 font-mono text-xs/snug dark:bg-gray-700">
 active: {{ activeTab }}</pre>
 
         <h3 class="mb-2">2. Tab Group — Multi Select (scroll, no marker)</h3>
@@ -2219,7 +2227,7 @@ active: {{ activeTab }}</pre>
             multiple
           />
         </div>
-        <pre class="mb-6 rounded bg-blue-100 px-3 py-1 font-mono text-xs dark:bg-gray-700">
+        <pre class="mb-6 rounded-sm bg-blue-100 px-3 py-1 font-mono text-xs/snug dark:bg-gray-700">
 active: {{ activeFilters }}</pre>
 
         <h3 class="mb-2">3. Tab Group — Single Select (overflow menu)</h3>
@@ -2235,7 +2243,7 @@ active: {{ activeFilters }}</pre>
             select-first-by-default
           />
         </div>
-        <pre class="mb-6 rounded bg-blue-100 px-3 py-1 font-mono text-xs dark:bg-gray-700">
+        <pre class="mb-6 rounded-sm bg-blue-100 px-3 py-1 font-mono text-xs/snug dark:bg-gray-700">
 active: {{ activeTabOverflow }}</pre>
 
         <h3 class="mb-2">4. Tab Group — Multi Select (overflow menu)</h3>
@@ -2252,7 +2260,7 @@ active: {{ activeTabOverflow }}</pre>
             mode="overflow"
           />
         </div>
-        <pre class="mb-6 rounded bg-blue-100 px-3 py-1 font-mono text-xs dark:bg-gray-700">
+        <pre class="mb-6 rounded-sm bg-blue-100 px-3 py-1 font-mono text-xs/snug dark:bg-gray-700">
 active: {{ activeFiltersOverflow }}</pre>
 
         <h3 class="mb-2">5. Navigation Tabs — Scroll Mode</h3>
@@ -2267,7 +2275,7 @@ active: {{ activeFiltersOverflow }}</pre>
             mode="scroll"
           />
         </div>
-        <pre class="mb-6 rounded bg-blue-100 px-3 py-1 font-mono text-xs dark:bg-gray-700">
+        <pre class="mb-6 rounded-sm bg-blue-100 px-3 py-1 font-mono text-xs/snug dark:bg-gray-700">
 active: {{ activeNavTabScroll }}</pre>
 
         <h3 class="mb-2">6. Navigation Tabs — Overflow Menu</h3>
@@ -2282,7 +2290,7 @@ active: {{ activeNavTabScroll }}</pre>
             mode="overflow"
           />
         </div>
-        <pre class="mb-6 rounded bg-blue-100 px-3 py-1 font-mono text-xs dark:bg-gray-700">
+        <pre class="mb-6 rounded-sm bg-blue-100 px-3 py-1 font-mono text-xs/snug dark:bg-gray-700">
 active: {{ activeNavTabOverflow }}</pre>
       </section>
 

@@ -13,9 +13,9 @@ pnpm config set store-dir "$(pwd)/.pnpm-store" --global
 
 bin/setup --skip-server
 
-echo "== Install CodeGraph index =="
+echo "== Initialize CodeGraph index =="
 
-pnpm run codegraph:install
+pnpm run codegraph:init
 
 echo "== Precompile Ruby cache =="
 
@@ -23,7 +23,7 @@ bundle exec bootsnap precompile --gemfile app/ lib/
 
 echo "== Configure Elasticsearch URL =="
 
-bundle exec rails r "Setting.set('es_url', 'http://elasticsearch:9200')"
+bundle exec rails r "Setting.set('es_url', 'http://localhost:9200')"
 
 echo "== Run auto_wizard setup =="
 
@@ -42,7 +42,7 @@ bundle exec rails r "
     name: 'Zammad LDAP',
     active: true,
     preferences: {
-      'host'             => 'ldap',
+      'host'             => 'localhost',
       'ssl'              => 'ssl',
       'ssl_verify'       => true,
       'options'          => { 'dc=foo,dc=example,dc=com' => 'dc=foo,dc=example,dc=com' },

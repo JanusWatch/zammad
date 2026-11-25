@@ -1,5 +1,6 @@
-subscription onlineNotificationsCount {
+subscription onlineNotificationsCount($withPushTags: Boolean! = false) {
   onlineNotificationsCount {
     unseenCount
+    unseenPushTags @include(if: $withPushTags)
   }
 }

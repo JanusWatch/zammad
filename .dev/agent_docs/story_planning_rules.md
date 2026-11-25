@@ -14,10 +14,10 @@ verified there are shaped and mapped here.
 
 ## Consumers
 
-| Consumer             | Lives in    | Uses these rules for                                    |
-| -------------------- | ----------- | ------------------------------------------------------- |
-| `refine-story` skill | skills repo | Checking and improving a story before it can be planned |
-| `plan-story` skill   | skills repo | Cutting a ready story into sub-issues and its plan      |
+| Consumer                    | Lives in    | Uses these rules for                                    |
+| --------------------------- | ----------- | ------------------------------------------------------- |
+| `zammad-refine-story` skill | skills repo | Checking and improving a story before it can be planned |
+| `zammad-plan-story` skill   | skills repo | Cutting a ready story into sub-issues and its plan      |
 
 When a rule changes, it changes **here** and every consumer picks it up. Do not copy rule text into
 a consumer.
@@ -146,7 +146,7 @@ A **layer slice** can never be a story. "Add the service and the mutation" has n
 and nothing observable — forcing it into story form produces a fake user story, which is worse than
 a large one. Layer slices are tasks. Split stories along capability and surface seams only.
 
-### Worked example — `zammad/coordination-desktop-view#785`
+### Worked example — editing knowledge base answers
 
 "Edit an answer of the knowledge base", one story, sixteen tasks, one very large merge request.
 Its criteria classified by the test above:

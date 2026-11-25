@@ -7,7 +7,7 @@ Switching between running tests and doing development work (by running `dev` fro
 should be effortless without any issues.
 
 RSpec is the recommended way of writing back end tests for Zammad,
-and in combination with Capybara also Selenium based end-to-end tests.
+and in combination with Capybara also Playwright-based end-to-end tests.
 
 This page explains some Zammad specific extensions that make testing easier.
 
@@ -32,11 +32,11 @@ Note that it's also possible to run a specific test case by including the line n
 bundle exec rspec spec/system/ticket/zoom_spec.rb:1072
 ```
 
-If you would like to specify the used browser for Capybara end-to-end tests, simply set the `SELENIUM_BROWSER` environment
+Capybara end-to-end tests run in Chromium by default. To use Firefox instead, set the `TEST_BROWSER` environment
 variable:
 
 ```sh
-SELENIUM_BROWSER=firefox bundle exec rspec spec/system/ticket/zoom_spec.rb
+TEST_BROWSER=firefox bundle exec rspec spec/system/ticket/zoom_spec.rb
 ```
 
 Also running failed tests only is possible with the option `--only-failures`.
@@ -44,6 +44,41 @@ Also running failed tests only is possible with the option `--only-failures`.
 ```sh
 bundle exec rspec --only-failures spec/system/ticket/zoom_spec.rb
 ```
+
+The browsers are driven by Playwright, which needs a one-time browser download and records a trace of every example to
+debug a failing browser test. See [How to debug system tests with Playwright](how-to-debug-with-playwright.md).
+
+To check whether a flaky system test is stable, loop it in CI, see
+[How to run filtered CI pipelines](how-to-run-filtered-ci-pipelines.md#loop-a-system-test).
+
+## Ports Used by a Test Run
+
+A run claims two ports, both taken from the environment. Their defaults sit
+next to - never on - the ports of the development stack, so a suite and the app
+of the same checkout can run at the same time:
+
+| Server | Variable | Default | Dev stack |
+| --- | --- | --- | --- |
+| Capybara / Puma | `CAPYBARA_PORT` | `3001` | `3000` |
+| WebSocket server | `WS_PORT` | `6043` | `6042` |
+
+Set both to run two suites side by side:
+
+```sh
+CAPYBARA_PORT=3101 WS_PORT=6143 bundle exec rspec spec/system/ticket/zoom_spec.rb
+```
+
+Without that, the second run fails on the port the first one holds:
+
+```text
+Couldn't start WebSocket server on port 6043. Maybe another websocket server
+process is already running? Set WS_PORT to a free port to run this suite
+alongside it.
+```
+
+Note that the two runs still share the `test` database, the Redis keys and the
+Elasticsearch indices, so give the second one its own `DATABASE_URL`,
+`REDIS_URL` and `ES_INDEX` as well.
 
 ## Default RSpec Environment
 
@@ -177,7 +212,7 @@ end
 
 ### `authenticated_as`
 
-As the default the login in selenium will be simulated and not the real form in the frontend.
+By default, the login in the browser is simulated instead of using the real form in the frontend.
 
 With the `authentication_type` it's possible to switch to the real form with he value `form`.
 
@@ -278,8 +313,8 @@ find_radio('articleSenderType').select_choice('Outbound Call')
 
 find_datepicker('Date Picker').select_date(Date.tomorrow)
 find_datepicker('Pending till').select_datetime('2023-01-01T09:00:00.000Z')
-find_datepicker('Date').type_date(Date.today)
-find_datepicker('Date Time').type_datetime(DateTime.now)
+find_datepicker('Date').type_date(Date.today) # desktop view only
+find_datepicker('Date Time').type_datetime(DateTime.now) # desktop view only
 
 find_select('Owner').select_option('Test Admin Agent')
 find_select('Multi Select').select_options(['Option 1', 'Option 2'])

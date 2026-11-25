@@ -1,6 +1,7 @@
 # coffeelint: disable=duplicate_key
 treeParams = (e, params) ->
   tree = []
+  defaults = []
   lastLevels = []
   previousValueLevels = []
 
@@ -37,10 +38,15 @@ treeParams = (e, params) ->
     item.value = valueLevels.join('::')
     lastLevels[level] = item
     previousValueLevels = valueLevels
+
+    # Inactive options can't be picked on a ticket, so they can't be the default either.
+    if !item.disabled && $row.find('.js-selected').is(':checked')
+      defaults.push(item.value)
   if tree[0]
     if !params.data_option
       params.data_option = {}
     params.data_option.options = tree
+    params.data_option.default = if params.data_type is 'multi_tree_select' then defaults else (defaults[0] || '')
   params
 
 multiselectParams = (params) ->
@@ -144,11 +150,16 @@ class Items extends App.ControllerSubContent
       if item.to_create is true || item.to_delete is true || item.to_migrate is true || item.to_config is true
         itemsToChange.push item
 
-    @html App.view('object_manager/index')(
+    html = App.view('object_manager/index')(
       head:          @object
       items:         items
       itemsToChange: itemsToChange
     )
+
+    # Collection pushes re-render unchanged data; replacing the buttons drops a click in progress.
+    return if html is @renderedHtml
+    @renderedHtml = html
+    @html html
 
   new: (e) =>
     e.preventDefault()

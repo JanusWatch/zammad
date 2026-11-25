@@ -1,15 +1,17 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
 import { loadErrorMessages, loadDevMessages } from '@apollo/client/dev'
+import { cacheSizes } from '@apollo/client/utilities'
 import { setup as setupA11y, toBeAccessible } from '@sa11y/vitest'
 import * as domMatchers from '@testing-library/jest-dom/matchers'
 import { toBeDisabled } from '@testing-library/jest-dom/matchers'
 import { configure } from '@testing-library/vue'
-import { expect, vi } from 'vitest'
+import { expect, vi, type MatchersObject } from 'vitest'
 
 import { ServiceWorkerHelper } from '#shared/utils/testSw.ts'
 
 import * as assertions from './support/assertions/index.ts'
+import { ClipboardItemMock } from './support/mocks/clipboardItem.ts'
 
 import type { TestingLibraryMatchers } from '@testing-library/jest-dom/matchers'
 
@@ -17,6 +19,11 @@ import type { TestingLibraryMatchers } from '@testing-library/jest-dom/matchers'
 
 loadDevMessages()
 loadErrorMessages()
+
+// Specs assert on object identity across cache updates; with the default limits
+//  Apollo drops memoized results of large lists and hands out new objects.
+cacheSizes['inMemoryCache.executeSelectionSet'] = 1_000_000
+cacheSizes['inMemoryCache.executeSubSelectedArray'] = 1_000_000
 
 vi.hoisted(() => {
   globalThis.__ = (source) => {
@@ -33,20 +40,13 @@ vi.hoisted(() => {
   if (typeof CSS?.escape === 'function') {
     CSS.escape = CSS.escape.bind(CSS)
   }
-
-  // Suppress Apollo's devtools-suggestion timer. The timer fires 10 s after
-  // ApolloClient construction; if the jsdom environment is torn down first,
-  // the callback throws "ReferenceError: window is not defined". Setting
-  // __DEV__ = false makes Apollo skip the timer entirely (see connectToDevTools
-  // in @apollo/client/core). loadDevMessages/loadErrorMessages are unaffected.
-  ;(globalThis as any).__DEV__ = false
 })
 
 window.sw = new ServiceWorkerHelper()
 
 configure({
   testIdAttribute: 'data-test-id',
-  // Must stay below the outer `testTimeout` (vite.config.mjs) with real margin — see
+  // Must stay below the outer `testTimeout` (vitest.config.mjs) with real margin — see
   // tests/support/vitest-wrapper.ts for why equal values cause misleading failures.
   asyncUtilTimeout: process.env.CI ? 20_000 : 1_000,
 })
@@ -133,14 +133,7 @@ const IntersectionObserverMock = vi.fn(function () {
 globalThis.IntersectionObserver = IntersectionObserverMock as any
 
 // Mock ClipboardItem class by injecting it into the global namespace.
-globalThis.ClipboardItem = class {
-  constructor(
-    private data: Record<string, Blob | string | Promise<Blob | string>>,
-    private options: { presentationStyle: 'unspecified' | 'inline' | 'attachment' } = {
-      presentationStyle: 'unspecified',
-    },
-  ) {}
-} as any
+globalThis.ClipboardItem = ClipboardItemMock as any
 
 require.extensions['.css'] = () => ({})
 
@@ -282,13 +275,13 @@ afterEach((context) => {
 })
 
 setupA11y()
-// There is a problem that sa11y uses still vitest v3
+// @sa11y/vitest still depends on older Vitest APIs, so keep explicit registration
+// until it officially supports Vitest 5.
 // https://github.com/salesforce/sa11y/blob/master/packages/vitest/package.json
-// In vitest v.4 we still need to manually provide the assertion api
 expect.extend({ toBeAccessible })
 
-expect.extend(assertions)
-expect.extend(domMatchers)
+expect.extend(assertions as unknown as MatchersObject)
+expect.extend(domMatchers as unknown as MatchersObject)
 
 expect.extend({
   // allow aria-disabled in toBeDisabled
@@ -313,19 +306,12 @@ declare module 'vitest' {
     skipConsole: boolean
   }
 
-  interface Assertion<T = any> extends TestingLibraryMatchers<typeof expect.stringContaining, T> {
+  interface Matchers<R, T> extends TestingLibraryMatchers<R, T> {
     /**
      * @param options - Allow passing custom rulesets
      * @sa11y/preset-rule base, extend, full
      */
-    toBeAccessible(options?: Parameters<typeof toBeAccessible>[1]): Promise<void>
-  }
-  interface AsymmetricMatchersContaining extends TestingLibraryMatchers<any, any> {
-    /**
-     * @param options - Allow passing custom rulesets
-     * @sa11y/preset-rule base, extend, full
-     */
-    toBeAccessible(options?: Parameters<typeof toBeAccessible>[1]): Promise<void>
+    toBeAccessible(options?: Parameters<typeof toBeAccessible>[1]): R
   }
 }
 

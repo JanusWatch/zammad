@@ -16,6 +16,7 @@ import { useTwoFactorPlugins } from '#shared/entities/two-factor/composables/use
 import { useUserCurrentTwoFactorVerifyMethodConfigurationMutation } from '#shared/entities/user/current/graphql/mutations/two-factor/userCurrentTwoFactorVerifyMethodConfiguration.api.ts'
 import { useUserCurrentTwoFactorInitiateMethodConfigurationQuery } from '#shared/entities/user/current/graphql/queries/two-factor/userCurrentTwoFactorInitiateMethodConfiguration.api.ts'
 import UserError from '#shared/errors/UserError.ts'
+import { getGraphQLErrorType } from '#shared/errors/utils.ts'
 import MutationHandler from '#shared/server/apollo/handler/MutationHandler.ts'
 import QueryHandler from '#shared/server/apollo/handler/QueryHandler.ts'
 import { GraphQLErrorTypes } from '#shared/types/error.ts'
@@ -26,7 +27,6 @@ import { useTransitionConfig } from '#desktop/composables/useTransitionConfig.ts
 import { usePasswordCheckTwoFactor } from '#desktop/entities/two-factor-configuration/composables/usePasswordCheckTwoFactor.ts'
 
 import type { TwoFactorConfigurationComponentPropsWithRequiredToken } from '../types.ts'
-import type { ApolloError } from '@apollo/client/errors'
 
 const props = defineProps<TwoFactorConfigurationComponentPropsWithRequiredToken>()
 
@@ -49,9 +49,9 @@ const initiationQuery = new QueryHandler(
 
 const { redirectToPasswordCheck } = usePasswordCheckTwoFactor(props.formSubmitCallback)
 
-initiationQuery.onError((error: ApolloError) => {
+initiationQuery.onError((error) => {
   if (
-    error?.graphQLErrors?.[0]?.extensions?.type !==
+    getGraphQLErrorType(error) !==
     'Gql::Concerns::HandlesPasswordRevalidationToken::InvalidTokenError'
   )
     return
@@ -206,7 +206,7 @@ const { transitions } = useTransitionConfig()
 
 <template>
   <CommonLoader :loading="loading" :error="initiationError" />
-  <div v-show="!loading" class="space-y-2 text-sm text-gray-100 dark:text-neutral-400">
+  <div v-show="!loading" class="space-y-2 text-sm text-normal">
     <CommonLabel
       >{{ $t('To set up an authenticator app for your account, follow the steps below:') }}
     </CommonLabel>
@@ -221,7 +221,7 @@ const { transitions } = useTransitionConfig()
         </CommonLabel>
         <ul class="list-disc ltr:pl-5 rtl:pr-5">
           <li v-for="app in authenticatorApps" :key="app.key">
-            <CommonLink class="text-sm leading-snug" :link="app.link" open-in-new-tab>
+            <CommonLink class="text-sm/snug" :link="app.link" open-in-new-tab>
               {{ $t(app.label) }}
             </CommonLink>
           </li>
@@ -252,7 +252,7 @@ const { transitions } = useTransitionConfig()
             <div
               v-show="showSecretOverlay"
               id="qr-code-secret-overlay"
-              class="bg-opacity-90 absolute top-0 right-0 bottom-0 left-0 flex flex-col items-center justify-center gap-1.5 rounded-lg bg-black"
+              class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 rounded-lg bg-black/90"
               role="presentation"
             >
               <span

@@ -32,7 +32,7 @@ RSpec.describe Gql::Queries::ObjectManager::FrontendAttributes, type: :graphql d
     let(:expected_result_customer) { nil }
 
     shared_context 'when fetching frontend attributes as agent and customer' do
-      context 'with an agent', authenticated_as: :user, db_strategy: :reset do
+      context 'with an agent', authenticated_as: :user do
         let(:user) { create(:admin) }
         let(:object_attribute) do
           create(:object_manager_attribute_text, object_name: object, screens: { 'edit' => {
@@ -44,9 +44,7 @@ RSpec.describe Gql::Queries::ObjectManager::FrontendAttributes, type: :graphql d
                      'shown'    => true,
                      'required' => true,
                    }
-                 } }).tap do
-            ObjectManager::Attribute.migration_execute
-          end
+                 } }).tap { |attribute| attribute.update!(to_create: false) }
         end
 
         it 'returns frontend object attributes' do
@@ -218,11 +216,11 @@ RSpec.describe Gql::Queries::ObjectManager::FrontendAttributes, type: :graphql d
           ],
           'screens'    => [
             {
-              'name'       => 'edit',
+              'name'       => 'create',
               'attributes' => %w[name shared domain_assignment domain vip note active],
             },
             {
-              'name'       => 'create',
+              'name'       => 'edit',
               'attributes' => %w[name shared domain_assignment domain vip note active],
             },
             {
@@ -272,11 +270,11 @@ RSpec.describe Gql::Queries::ObjectManager::FrontendAttributes, type: :graphql d
           ],
           'screens'    => [
             {
-              'name'       => 'edit',
+              'name'       => 'create',
               'attributes' => %w[name domain note],
             },
             {
-              'name'       => 'create',
+              'name'       => 'edit',
               'attributes' => %w[name domain note],
             },
             {
@@ -454,6 +452,14 @@ RSpec.describe Gql::Queries::ObjectManager::FrontendAttributes, type: :graphql d
           ],
           'screens'    => [
             {
+              'attributes' => ['tags'],
+              'name'       => 'create_bottom'
+            },
+            {
+              'attributes' => %w[group_id owner_id state_id pending_time priority_id],
+              'name'       => 'create_middle'
+            },
+            {
               'attributes' => %w[title customer_id organization_id],
               'name'       => 'create_top'
             },
@@ -461,15 +467,7 @@ RSpec.describe Gql::Queries::ObjectManager::FrontendAttributes, type: :graphql d
               'attributes' => %w[group_id owner_id state_id pending_time priority_id],
               'name'       => 'edit'
             },
-            {
-              'attributes' => %w[group_id owner_id state_id pending_time priority_id],
-              'name'       => 'create_middle'
-            },
-            { 'attributes' => %w[group_id owner_id state_id pending_time priority_id], 'name' => 'overview_bulk' },
-            {
-              'attributes' => ['tags'],
-              'name'       => 'create_bottom'
-            }
+            { 'attributes' => %w[group_id owner_id state_id pending_time priority_id], 'name' => 'overview_bulk' }
           ]
         }
       end
@@ -604,6 +602,14 @@ RSpec.describe Gql::Queries::ObjectManager::FrontendAttributes, type: :graphql d
           ],
           'screens'    => [
             {
+              'attributes' => [],
+              'name'       => 'create_bottom'
+            },
+            {
+              'attributes' => %w[group_id state_id],
+              'name'       => 'create_middle'
+            },
+            {
               'attributes' => %w[title organization_id],
               'name'       => 'create_top'
             },
@@ -611,15 +617,7 @@ RSpec.describe Gql::Queries::ObjectManager::FrontendAttributes, type: :graphql d
               'attributes' => ['state_id'],
               'name'       => 'edit'
             },
-            {
-              'attributes' => %w[group_id state_id],
-              'name'       => 'create_middle'
-            },
-            { 'attributes' => [], 'name' => 'overview_bulk' },
-            {
-              'attributes' => [],
-              'name'       => 'create_bottom'
-            }
+            { 'attributes' => [], 'name' => 'overview_bulk' }
           ]
         }
       end
@@ -627,7 +625,7 @@ RSpec.describe Gql::Queries::ObjectManager::FrontendAttributes, type: :graphql d
       include_context 'when fetching frontend attributes as agent and customer'
     end
 
-    context 'with an external data source attribute', authenticated_as: :user, db_strategy: :reset do
+    context 'with an external data source attribute', authenticated_as: :user do
       let(:user)   { create(:agent) }
       let(:object) { 'Ticket' }
       let(:object_attribute) do
@@ -640,7 +638,7 @@ RSpec.describe Gql::Queries::ObjectManager::FrontendAttributes, type: :graphql d
                  'verify_ssl'               => false,
                },
                screens:                 { 'edit' => { 'ticket.agent' => { 'shown' => true } } })
-          .tap { ObjectManager::Attribute.migration_execute }
+          .tap { |attribute| attribute.update!(to_create: false) }
       end
 
       before do
@@ -656,7 +654,7 @@ RSpec.describe Gql::Queries::ObjectManager::FrontendAttributes, type: :graphql d
       end
     end
 
-    context 'with object "Ticket" with agent-customer', authenticated_as: :user, db_strategy: :reset do
+    context 'with object "Ticket" with agent-customer', authenticated_as: :user do
       let(:user)   { create(:agent_and_customer) }
       let(:object) { 'Ticket' }
       let(:object_attribute) do
@@ -665,7 +663,7 @@ RSpec.describe Gql::Queries::ObjectManager::FrontendAttributes, type: :graphql d
                    'shown'    => true,
                    'required' => true,
                  }
-               } }).tap { ObjectManager::Attribute.migration_execute }
+               } }).tap { |attribute| attribute.update!(to_create: false) }
       end
 
       before do

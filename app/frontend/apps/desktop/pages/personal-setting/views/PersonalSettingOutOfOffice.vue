@@ -46,12 +46,12 @@ const schema = defineFormSchema([
         placeholder: __('e.g. Easter holiday'),
       },
       {
-        type: 'date',
+        type: 'daterange',
         name: 'date_range',
         label: __('Start and end date'),
         props: {
           clearable: true,
-          range: true,
+          partialRange: false,
         },
       },
       {
@@ -177,7 +177,7 @@ const { tabs, activeTab } = usePersonalSettingTabs()
         <template #after-fields>
           <div class="mt-5 flex items-center justify-end gap-2">
             <CommonButton variant="submit" type="submit" size="medium" :disabled="isDisabled">
-              {{ $t('Save out of office') }}
+              {{ $t('Save changes') }}
             </CommonButton>
           </div>
         </template>

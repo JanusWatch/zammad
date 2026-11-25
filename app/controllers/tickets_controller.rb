@@ -92,7 +92,11 @@ class TicketsController < ApplicationController
           raise Exceptions::UnprocessableContent, __('Shared draft cannot be selected for this ticket.')
         end
 
-        shared_draft&.destroy
+        if shared_draft
+          authorize!(shared_draft, :destroy?)
+
+          shared_draft.destroy
+        end
       end
 
       # Prevent direct access to checklist via API
@@ -146,7 +150,7 @@ class TicketsController < ApplicationController
           local_customer = User.find_by(email: clean_customer[:email].downcase)
         end
         if !local_customer && clean_customer[:login].present?
-          local_customer = User.find_by(login: clean_customer[:login].downcase)
+          local_customer = User.by_login(clean_customer[:login]).take
         end
         if !local_customer
           role_ids = Role.signup_role_ids
@@ -538,7 +542,16 @@ class TicketsController < ApplicationController
 
   private
 
+  # Transaction dispatch runs before this and leaves the user context blank, which the asset
+  #   filters treat as unprivileged. Re-establish it, so the response is scoped to the caller
+  #   instead of being redacted as if nobody was logged in.
   def render_reloaded_ticket(ticket, status: :ok)
+    UserInfo.with_user_id(current_user.id) do
+      render_reloaded_ticket_response(ticket, status:)
+    end
+  end
+
+  def render_reloaded_ticket_response(ticket, status:)
     if response_expand?
       result = ticket.reload.attributes_with_association_names
       render(json: result, status:)
@@ -569,7 +582,11 @@ class TicketsController < ApplicationController
       raise Exceptions::UnprocessableContent, __('Shared draft cannot be selected for this ticket.')
     end
 
-    shared_draft&.destroy
+    return if !shared_draft
+
+    authorize!(shared_draft, :destroy?)
+
+    shared_draft.destroy
   end
 
   def handle_macro_perform_changes(id, perform_changes)

@@ -1,5 +1,7 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
+import { CombinedGraphQLErrors } from '@apollo/client/errors'
+
 import {
   useNotifications,
   NotificationTypes,
@@ -15,8 +17,7 @@ import type {
 } from '#shared/types/server/apollo/handler.ts'
 import getUuid from '#shared/utils/getUuid.ts'
 
-import type { ApolloError, OperationVariables } from '@apollo/client/core'
-import type { GraphQLFormattedError } from 'graphql'
+import type { ErrorLike, OperationVariables } from '@apollo/client'
 import type { Ref } from 'vue'
 
 export abstract class BaseHandler<
@@ -32,6 +33,7 @@ export abstract class BaseHandler<
 
   protected baseHandlerOptions: BaseHandlerOptions = {
     errorShowNotification: true,
+    errorShowNotificationOnNotAuthorized: false,
     errorNotificationMessage: '',
     errorNotificationType: NotificationTypes.Error,
   }
@@ -59,28 +61,27 @@ export abstract class BaseHandler<
     })
   }
 
-  public loading(): Ref<boolean> {
+  public loading(): Readonly<Ref<boolean>> {
     return this.operationResult.loading
   }
 
-  public operationError(): Ref<Maybe<ApolloError>> {
+  public operationError(): Readonly<Ref<Maybe<ErrorLike>>> {
     return this.operationResult.error
   }
 
-  public onError(callback: (error: ApolloError) => void): void {
+  public onError(callback: (error: ErrorLike) => void): void {
     this.operationResult.onError(callback)
   }
 
-  protected handleError(error: ApolloError): void {
+  protected handleError(error: ErrorLike): void {
     const options = this.handlerOptions
 
     let triggerNotification = options.errorShowNotification
 
-    const { graphQLErrors, networkError } = error
     let errorHandler: GraphQLHandlerError
 
-    if (graphQLErrors.length > 0) {
-      const { message, extensions }: GraphQLFormattedError = graphQLErrors[0]
+    if (CombinedGraphQLErrors.is(error)) {
+      const { message, extensions } = error.errors[0] ?? {}
       let type = (extensions?.type as GraphQLErrorTypes) || GraphQLErrorTypes.UnknownError
 
       // When it's not a known type, use the unknown error type.
@@ -92,18 +93,11 @@ export abstract class BaseHandler<
         type,
         message,
       }
-    } else if (networkError) {
+    } else {
+      // Anything that is not a GraphQL response error came from the transport.
       errorHandler = {
         type: GraphQLErrorTypes.NetworkError,
       }
-    } else {
-      errorHandler = {
-        type: GraphQLErrorTypes.UnknownError,
-      }
-    }
-
-    if (errorHandler.type === GraphQLErrorTypes.NotAuthorized) {
-      triggerNotification = false
     }
 
     if (options.errorCallback) {
@@ -112,6 +106,19 @@ export abstract class BaseHandler<
       if (typeof trigger === 'boolean') {
         triggerNotification = trigger
       }
+    }
+
+    // Never notify about an authentication error unless the operation opted in,
+    //  no matter what the error callback decided: the invalid session is handled
+    //  centrally and the user ends up on the login screen anyway. This is
+    //  checked after the error callback, because callbacks are usually written
+    //  as a filter for specific error types and would otherwise switch the
+    //  notification on again.
+    if (
+      errorHandler.type === GraphQLErrorTypes.NotAuthorized &&
+      !options.errorShowNotificationOnNotAuthorized
+    ) {
+      triggerNotification = false
     }
 
     if (triggerNotification) {

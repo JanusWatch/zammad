@@ -17,10 +17,10 @@ RSpec.describe Tag, type: :request do
         expect(response).to have_http_status(:created)
       end
 
-      it 'deletes tag' do
+      it 'adds tag' do
         post '/api/v1/tags/add', params: payload
 
-        expect(described_class.tag_list(payload)).to be_present
+        expect(described_class.tag_list(payload)).to include(payload[:item])
       end
     end
 
@@ -103,8 +103,9 @@ RSpec.describe Tag, type: :request do
 
       context 'without search term' do
         before do
-          create_list(:tag, 2, tag_item: tags.last)
-          create_list(:tag, 1, tag_item: tags.first)
+          create(:tag, tag_item: tags.last)
+          create(:tag, tag_item: tags.last, o: create(:ticket))
+          create(:tag, tag_item: tags.first)
         end
 
         it 'most used is on first place without search term' do
@@ -125,9 +126,10 @@ RSpec.describe Tag, type: :request do
       Setting.set('tag_new', false)
     end
 
-    it 'does not add tags to the ticket' do
+    it 'does not add tags to the ticket', :aggregate_failures do
       post '/api/v1/tags/add', params: payload
       expect(response).to have_http_status(:forbidden)
+      expect(described_class.tag_list(payload)).not_to include(payload[:item])
     end
   end
 end

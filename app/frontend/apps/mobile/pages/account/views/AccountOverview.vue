@@ -22,6 +22,8 @@ import CommonSectionMenuLink from '#mobile/components/CommonSectionMenu/CommonSe
 import CommonSectionPopup from '#mobile/components/CommonSectionPopup/CommonSectionPopup.vue'
 import { useHeader } from '#mobile/composables/useHeader.ts'
 
+import AccountPushNotifications from '../components/AccountPushNotifications.vue'
+
 const router = useRouter()
 
 const logout = () => {
@@ -138,6 +140,8 @@ const { forceDesktop } = useForceDesktop()
       </CommonSectionMenuLink>
     </CommonSectionMenu>
 
+    <AccountPushNotifications />
+
     <!--
       The shorthand "no-options-label-translation" is not working currently because of a FormKit limitation,
       therefore we need to explicitly set it to true.
@@ -155,7 +159,7 @@ const { forceDesktop } = useForceDesktop()
 
       <template #help>
         {{ $t('Did you know?') }}
-        <CommonLink class="text-blue" target="_blank" :link="translation.link">
+        <CommonLink class="text-blue" :link="translation.link" size="small" open-in-new-tab>
           {{ $t('You can help translating Zammad.') }}
         </CommonLink>
       </template>

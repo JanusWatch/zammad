@@ -1,10 +1,11 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
-import { provideApolloClient } from '@vue/apollo-composable'
+import { provideApolloClient } from '@vue/apollo-composable/compat'
 import { createMockClient } from 'mock-apollo-client'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { LocalesDocument } from '#shared/graphql/queries/locales.api.ts'
+import { TranslationsDocument } from '#shared/graphql/queries/translations.api.ts'
 import type { LocalesQuery } from '#shared/graphql/types.ts'
 import { EnumTextDirection } from '#shared/graphql/types.ts'
 
@@ -16,6 +17,7 @@ const mockQueryResult = (): LocalesQuery => {
       {
         __typename: 'Locale',
         locale: 'de-de',
+        language: 'de',
         name: 'Deutsch',
         dir: EnumTextDirection.Ltr,
         alias: 'de',
@@ -24,6 +26,7 @@ const mockQueryResult = (): LocalesQuery => {
       {
         __typename: 'Locale',
         locale: 'ar',
+        language: 'ar',
         name: 'Arabic',
         dir: EnumTextDirection.Rtl,
         alias: null,
@@ -38,6 +41,13 @@ const mockClient = () => {
 
   mockApolloClient.setRequestHandler(LocalesDocument, () => {
     return Promise.resolve({ data: mockQueryResult() })
+  })
+  mockApolloClient.setRequestHandler(TranslationsDocument, () => {
+    return Promise.resolve({
+      data: {
+        translations: { isCacheStillValid: false, cacheKey: 'MOCKED_CACHE_KEY', translations: {} },
+      },
+    })
   })
   provideApolloClient(mockApolloClient)
 }

@@ -6,11 +6,9 @@ import CommonUserAvatar from '#shared/components/CommonUserAvatar/CommonUserAvat
 import { useOnlineNotificationCount } from '#shared/entities/online-notification/composables/useOnlineNotificationCount.ts'
 import { useSessionStore } from '#shared/stores/session.ts'
 
-import { useCustomLayout } from './useCustomLayout.ts'
-
 const user = toRef(useSessionStore(), 'user')
-const { isCustomLayout } = useCustomLayout()
-const { unseenCount } = useOnlineNotificationCount()
+// The same variables as the push cleanup, so the client holds one subscription.
+const { unseenCount } = useOnlineNotificationCount({ withPushTags: true })
 
 const notificationCount = computed(() => {
   if (!unseenCount.value) return ''
@@ -20,12 +18,8 @@ const notificationCount = computed(() => {
 </script>
 
 <template>
-  <footer
-    class="bottom-navigation fixed bottom-0 z-10 w-full bg-gray-light backdrop-blur-lg"
-    :class="{ 'px-4': isCustomLayout }"
-    data-bottom-navigation
-  >
-    <div v-if="!isCustomLayout" class="flex h-14 w-full items-center text-center">
+  <footer class="bottom-navigation fixed bottom-0 z-10 w-full bg-gray-light backdrop-blur-lg">
+    <div class="flex h-14 w-full items-center text-center">
       <CommonLink link="/" class="flex flex-1 justify-center" exact-active-class="text-blue">
         <CommonIcon name="home" />
       </CommonLink>
@@ -38,7 +32,7 @@ const notificationCount = computed(() => {
           v-if="notificationCount"
           role="status"
           :aria-label="$t('Unread notifications')"
-          class="absolute h-4 min-w-[1rem] rounded-full bg-blue px-1 text-center text-xs text-black ltr:ml-4 rtl:mr-4"
+          class="absolute h-4 min-w-4 rounded-full bg-blue px-1 text-center text-xs/snug text-black ltr:ml-4 rtl:mr-4"
         >
           {{ notificationCount }}
         </div>

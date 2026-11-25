@@ -19,11 +19,13 @@ export const initializeGlobalComponentStyles = () => {
     base: 'inline-flex justify-center items-center border-0',
     success: 'bg-green-300 text-green-500 dark:bg-green-900 dark:text-green-500',
     info: 'bg-blue-500 text-blue-800 dark:bg-blue-950 dark:text-blue-800',
-    tertiary: 'bg-blue-200 text-stone-200 dark:bg-gray-700  dark:text-neutral-500',
-    warning: 'bg-yellow-50 text-yellow-600 dark:bg-yellow-900 dark:text-yellow-600',
+    tertiary: 'bg-blue-200 text-muted dark:bg-gray-700',
+    warning: 'bg-yellow-50 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
     danger: 'bg-pink-100 text-red-500 dark:bg-red-900 dark:text-red-500',
-    neutral: 'text-gray-100 bg-neutral-50 dark:text-neutral-400 dark:bg-gray-500',
-    highlight: 'border-2 border-white bg-pink-500 text-white dark:border-gray-500',
+    neutral: 'text-normal bg-neutral-50 dark:bg-gray-500',
+    highlight: 'bg-pink-500 text-white',
+    open: 'bg-yellow-50 text-yellow-500 dark:bg-yellow-900',
+    ai: 'badge-ai',
     custom: 'badge-custom',
   })
 
@@ -31,14 +33,14 @@ export const initializeGlobalComponentStyles = () => {
     base: 'grid gap-1.5 text-center md:text-start text-sm items-start justify-center md:justify-start grid-flow-row md:grid-flow-col md:grid-cols-[auto_minmax(auto,_1fr)] w-full md:w-auto',
     success: 'bg-green-300 dark:bg-green-900 text-green-500',
     info: 'bg-blue-500 dark:bg-blue-950 text-blue-800',
-    warning: 'bg-yellow-50 dark:bg-yellow-900 text-yellow-600',
+    warning: 'bg-yellow-50 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300',
     danger: 'bg-pink-100 dark:bg-red-900 text-red-500',
     dismissButton:
       'outline-transparent focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-blue-800 rounded-sm',
     translucent: {
       success: 'bg-green-300/80 dark:bg-green-900/80 text-green-500',
       info: 'bg-blue-500/80 dark:bg-blue-950/80 text-blue-800',
-      warning: 'bg-yellow-50/80 dark:bg-yellow-900/80 text-yellow-600',
+      warning: 'bg-yellow-50/80 dark:bg-yellow-900/80 text-yellow-700 dark:text-yellow-300',
       danger: 'bg-pink-100/80 dark:bg-red-900/80 text-red-500',
     },
   })
@@ -74,11 +76,13 @@ export const initializeGlobalComponentStyles = () => {
   initializeNotificationClasses({
     base: 'rounded-lg p-2 border-transparent focus-visible-app-default',
     baseContainer: 'mx-auto',
+    button:
+      'rounded-lg px-2.5 py-1.5 text-xs font-bold transition-colors hover:text-black focus-visible-app-default dark:hover:text-white',
     error: 'bg-pink-100 dark:bg-red-900 text-red-500',
     info: 'bg-blue-500 dark:bg-blue-950 text-blue-800',
     message: '',
     success: 'bg-green-300 dark:bg-green-900 text-green-500',
-    warn: 'bg-yellow-50 dark:bg-yellow-900 text-yellow-600',
+    warn: 'bg-yellow-50 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300',
   })
 
   initializePopoverClasses({
@@ -91,7 +95,7 @@ export const initializeGlobalComponentStyles = () => {
     colorSchemeList: {
       base: 'gap-1',
       button: 'w-4',
-      autoButton: 'h-4 bg-blue-200 text-black dark:bg-gray-700 dark:text-white',
+      autoButton: 'h-4 bg-blue-200 text-contrast dark:bg-gray-700',
       autoButtonIcon: '',
     },
   })
@@ -114,13 +118,13 @@ export const initializeGlobalComponentStyles = () => {
       base: 'min-w-[13.5rem] rounded-xl overflow-hidden',
       item: '',
       button:
-        'text-sm outline-none p-3 text-left active:text-white active:bg-blue-800 dark:active:bg-blue-800 dark:hover:text-white hover:text-black inline-block w-full dark:text-neutral-400 focus-visible:bg-blue-800 focus-visible:text-white hover:bg-blue-600 dark:hover:bg-blue-900 text-gray-100',
+        'text-sm outline-none p-3 text-left active:text-white active:bg-blue-800 dark:active:bg-blue-800 hover:text-contrast inline-block w-full focus-visible:bg-blue-800 focus-visible:text-white hover:bg-blue-600 dark:hover:bg-blue-900 text-normal',
     },
   })
 
   initializeAiAssistantTextToolsLoadingBannerClasses({
     icon: 'text-blue-800',
-    label: 'text-black! dark:text-white!',
+    label: 'text-contrast!',
     button: 'text-blue-800',
   })
 

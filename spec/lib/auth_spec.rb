@@ -12,10 +12,6 @@ RSpec.describe Auth do
   end
 
   describe '.valid!' do
-    it 'responds to valid!' do
-      expect(instance).to respond_to(:valid!)
-    end
-
     context 'with an internal user' do
       context 'with valid credentials' do
         it 'check for valid credentials' do
@@ -117,7 +113,7 @@ RSpec.describe Auth do
         end
 
         context 'without valid two factor token' do
-          it 'raises an error and does not the failed login count' do
+          it 'raises an error and does not increase the failed login count' do
             expect { instance.valid! }.to raise_error(Auth::Error::TwoFactorRequired).and(not_change { user.reload.login_failed })
           end
         end
@@ -125,8 +121,34 @@ RSpec.describe Auth do
         context 'with an invalid two factor token' do
           let(:instance) { described_class.new(user.login, password, two_factor_method: 'authenticator_app', two_factor_payload: 'wrong') }
 
-          it 'raises an error and does not increase the failed login count' do
-            expect { instance.valid! }.to raise_error(Auth::Error::TwoFactorFailed).and(not_change { user.reload.login_failed })
+          it 'raises an error and increases the failed login count' do
+            expect { instance.valid! }.to raise_error(Auth::Error::TwoFactorFailed).and(change { user.reload.login_failed }.from(0).to(1))
+          end
+
+          it 'failed login avoids brute force attack' do
+            allow(instance).to receive(:sleep)
+            begin
+              instance.try(:valid!)
+            rescue Auth::Error::TwoFactorFailed
+              # no-op
+            end
+            # sleep receives the stubbed value.
+            expect(instance).to have_received(:sleep).with(0)
+          end
+
+          context 'when the maximum of failed logins is reached' do
+            let(:user)           { create(:user, password: password, login_failed: Setting.get('password_max_login_failed').to_i) }
+            let(:code)           { two_factor_pref.configuration[:code] }
+            let(:valid_instance) { described_class.new(user.login, password, two_factor_method: 'authenticator_app', two_factor_payload: code) }
+
+            it 'rejects a valid two factor token until the account is unlocked', :aggregate_failures do
+              expect { instance.valid! }.to raise_error(Auth::Error::TwoFactorFailed)
+              expect { valid_instance.valid! }.to raise_error(Auth::Error::AuthenticationFailed)
+
+              user.update!(login_failed: 0)
+
+              expect(valid_instance.valid!).to be true
+            end
           end
 
           context 'with disabled authenticator method' do
@@ -160,7 +182,7 @@ RSpec.describe Auth do
       context 'with inactive user login' do
         let(:user) { create(:user, active: false) }
 
-        it 'returns false' do
+        it 'raises an error' do
           expect { instance.valid! }.to raise_error(Auth::Error::AuthenticationFailed)
         end
       end
@@ -168,7 +190,7 @@ RSpec.describe Auth do
       context 'with non-existent user login' do
         let(:instance) { described_class.new('not_existing', password) }
 
-        it 'returns false' do
+        it 'raises an error' do
           expect { instance.valid! }.to raise_error(Auth::Error::AuthenticationFailed)
         end
       end
@@ -176,7 +198,7 @@ RSpec.describe Auth do
       context 'with empty user login' do
         let(:instance) { described_class.new('', password) }
 
-        it 'returns false' do
+        it 'raises an error' do
           expect { instance.valid! }.to raise_error(Auth::Error::AuthenticationFailed)
         end
       end
@@ -191,7 +213,7 @@ RSpec.describe Auth do
         context 'with empty password string' do
           let(:password) { '' }
 
-          it 'returns false' do
+          it 'raises an error' do
             expect { instance.valid! }.to raise_error(Auth::Error::AuthenticationFailed)
           end
         end
@@ -200,7 +222,7 @@ RSpec.describe Auth do
           context 'when password is an empty string' do
             let(:password) { '' }
 
-            it 'returns false' do
+            it 'raises an error' do
               expect { instance.valid! }.to raise_error(Auth::Error::AuthenticationFailed)
             end
           end
@@ -208,7 +230,7 @@ RSpec.describe Auth do
           context 'when password is nil' do
             let(:password) { nil }
 
-            it 'returns false' do
+            it 'raises an error' do
               expect { instance.valid! }.to raise_error(Auth::Error::AuthenticationFailed)
             end
           end
@@ -248,7 +270,7 @@ RSpec.describe Auth do
         context 'with empty password string' do
           let(:password) { '' }
 
-          it 'returns false' do
+          it 'raises an error' do
             expect { instance.valid! }.to raise_error(Auth::Error::AuthenticationFailed)
           end
         end
@@ -256,7 +278,7 @@ RSpec.describe Auth do
         context 'when password is nil' do
           let(:password) { nil }
 
-          it 'returns false' do
+          it 'raises an error' do
             expect { instance.valid! }.to raise_error(Auth::Error::AuthenticationFailed)
           end
         end
@@ -293,12 +315,15 @@ RSpec.describe Auth do
       end
 
       context 'with a ldap user which also has a internal password' do
-        let(:user)     { create(:user, source: 'Ldap', password: password) }
-        let(:password) { password_ldap }
+        let(:ldap_source)       { create(:ldap_source) }
+        let(:password_internal) { 'zammad_internal' }
+        let(:user)              { create(:user, source: "Ldap::#{ldap_source.id}", password: password_internal) }
+        let(:password)          { password_ldap }
 
         context 'with valid ldap credentials' do
           before do
-            allow(ldap_user).to receive(:valid?).with(any_args).and_return(true)
+            allow(ldap_user).to receive(:valid?).with(any_args).and_return(false)
+            allow(ldap_user).to receive(:valid?).with(user.login, password_ldap).and_return(true)
           end
 
           it 'returns true' do
@@ -307,18 +332,20 @@ RSpec.describe Auth do
         end
 
         context 'with invalid ldap credentials' do
-          let(:instance) { described_class.new(user.login, 'wrong') }
+          let(:password) { 'wrong' }
 
           before do
             allow(ldap_user).to receive(:valid?).with(any_args).and_return(false)
           end
 
-          it 'raises an error and does not increase the failed login count' do
+          it 'raises an error and increases the failed login count' do
             expect { instance.valid! }.to raise_error(Auth::Error::AuthenticationFailed).and(change { user.reload.login_failed }.from(0).to(1))
           end
         end
 
         context 'with valid internal credentials' do
+          let(:password) { password_internal }
+
           before do
             allow(ldap_user).to receive(:valid?).with(any_args).and_return(false)
           end

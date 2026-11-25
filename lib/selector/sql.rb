@@ -156,6 +156,7 @@ class Selector::Sql < Selector::Base
     validate_pre_condition_values! block_condition
 
     is_json_column = sql_helper.json_column?(attribute_name)
+    is_date_column = sql_helper.date_column?(attribute_name)
 
     # get attributes
     attribute = is_json_column ? sql_helper.json_db_column_with_key(attribute_name, 'value') : sql_helper.db_column(attribute_name)
@@ -340,6 +341,12 @@ class Selector::Sql < Selector::Base
                else
                  "users.id NOT IN (SELECT DISTINCT #{distinct_column} FROM tickets#{query_where})"
                end
+    elsif attribute_table == 'ticket' && attribute_name == 'checklist_existing'
+      query << if (block_condition[:operator] == 'is' && block_condition[:value].to_s == 'true') || (block_condition[:operator] == 'is not' && block_condition[:value].to_s != 'true')
+                 'EXISTS (SELECT 1 FROM checklist_items WHERE checklist_items.checklist_id = tickets.checklist_id)'
+               else
+                 'NOT EXISTS (SELECT 1 FROM checklist_items WHERE checklist_items.checklist_id = tickets.checklist_id)'
+               end
     elsif block_condition[:operator] == 'starts with'
       query << "#{attribute} ILIKE (?)"
       bind_params.push "#{SqlHelper.quote_like(block_condition[:value])}%"
@@ -389,14 +396,15 @@ class Selector::Sql < Selector::Base
 
       query << "(#{sub_query.join(' AND ')})" if sub_query.present?
     elsif block_condition[:operator] == 'is'
-      if block_condition[:pre_condition] == 'not_set'
+      case block_condition[:pre_condition]
+      when 'not_set'
         if attribute_name.match?(%r{^(created_by|updated_by|owner|customer|user)_id})
           query << "(#{attribute} IS NULL OR #{attribute} IN (?))"
           bind_params.push 1
         else
           query << "#{attribute} IS NULL"
         end
-      elsif block_condition[:pre_condition] == 'current_user.id'
+      when 'current_user.id'
         raise "Use current_user.id in block_condition, but no current_user is set #{block_condition.inspect}" if !current_user_id
 
         query << "#{attribute} IN (?)"
@@ -405,7 +413,7 @@ class Selector::Sql < Selector::Base
         else
           bind_params.push current_user_id
         end
-      elsif block_condition[:pre_condition] == 'current_user.organization_id'
+      when 'current_user.organization_id'
         raise "Use current_user.id in block_condition, but no current_user is set #{block_condition.inspect}" if !current_user_id
 
         query << "#{attribute} IN (?)"
@@ -435,21 +443,22 @@ class Selector::Sql < Selector::Base
         end
       end
     elsif block_condition[:operator] == 'is not'
-      if block_condition[:pre_condition] == 'not_set'
+      case block_condition[:pre_condition]
+      when 'not_set'
         if attribute_name.match?(%r{^(created_by|updated_by|owner|customer|user)_id})
           query << "(#{attribute} IS NOT NULL AND #{attribute} NOT IN (?))"
           bind_params.push 1
         else
           query << "#{attribute} IS NOT NULL"
         end
-      elsif block_condition[:pre_condition] == 'current_user.id'
+      when 'current_user.id'
         query << "(#{attribute} IS NULL OR #{attribute} NOT IN (?))"
         if attribute_name == 'out_of_office_replacement_id'
           bind_params.push User.find(current_user_id).out_of_office_agent_of.pluck(:id)
         else
           bind_params.push current_user_id
         end
-      elsif block_condition[:pre_condition] == 'current_user.organization_id'
+      when 'current_user.organization_id'
         query << "(#{attribute} IS NULL OR #{attribute} NOT IN (?))"
         user = User.find_by(id: current_user_id)
         bind_params.push user.organization_id
@@ -574,12 +583,17 @@ class Selector::Sql < Selector::Base
       end
     elsif block_condition[:operator] == 'today'
       Time.use_zone(Setting.get('timezone_default')) do
-        day_start = Time.zone.now.beginning_of_day.utc
-        day_end   = Time.zone.now.end_of_day.utc
+        if is_date_column
+          query << "#{attribute} = ?"
+          bind_params.push Time.zone.today
+        else
+          day_start = Time.zone.now.beginning_of_day.utc
+          day_end   = Time.zone.now.end_of_day.utc
 
-        query << "#{attribute} BETWEEN ? AND ?"
-        bind_params.push day_start
-        bind_params.push day_end
+          query << "#{attribute} BETWEEN ? AND ?"
+          bind_params.push day_start
+          bind_params.push day_end
+        end
       end
     elsif block_condition[:operator] == 'in range'
       if (!block_condition[:value].is_a?(Array) || block_condition[:value].size != 2) || (block_condition[:value][0].blank? && block_condition[:value][1].blank?)
@@ -603,30 +617,24 @@ class Selector::Sql < Selector::Base
       bind_params.push block_condition[:value]
     elsif block_condition[:operator] == 'within last (relative)'
       query << "#{attribute} BETWEEN ? AND ?"
-      time = range(block_condition).ago
-      bind_params.push time
-      bind_params.push Time.zone.now
+      bind_params.push relative_bound(is_date_column) { range(block_condition).ago }
+      bind_params.push relative_bound(is_date_column) { Time.zone.now }
     elsif block_condition[:operator] == 'within next (relative)'
       query << "#{attribute} BETWEEN ? AND ?"
-      time = range(block_condition).from_now
-      bind_params.push Time.zone.now
-      bind_params.push time
+      bind_params.push relative_bound(is_date_column) { Time.zone.now }
+      bind_params.push relative_bound(is_date_column) { range(block_condition).from_now }
     elsif block_condition[:operator] == 'before (relative)'
       query << "#{attribute} <= ?"
-      time = range(block_condition).ago
-      bind_params.push time
+      bind_params.push relative_bound(is_date_column) { range(block_condition).ago }
     elsif block_condition[:operator] == 'after (relative)'
       query << "#{attribute} >= ?"
-      time = range(block_condition).from_now
-      bind_params.push time
+      bind_params.push relative_bound(is_date_column) { range(block_condition).from_now }
     elsif block_condition[:operator] == 'till (relative)'
       query << "#{attribute} <= ?"
-      time = range(block_condition).from_now
-      bind_params.push time
+      bind_params.push relative_bound(is_date_column) { range(block_condition).from_now }
     elsif block_condition[:operator] == 'from (relative)'
       query << "#{attribute} >= ?"
-      time = range(block_condition).ago
-      bind_params.push time
+      bind_params.push relative_bound(is_date_column) { range(block_condition).ago }
     elsif ['is less than', 'is less than or equal to', 'is greater than', 'is greater than or equal to'].include?(block_condition[:operator])
       operator = OPERATOR_WORDING_TO_SYNTAX[block_condition[:operator]]
       query << "#{attribute} #{operator} ?"
@@ -644,10 +652,10 @@ class Selector::Sql < Selector::Base
     [query, bind_params, tables]
   end
 
-  def range(selector)
-    selector[:value].to_i.send(selector[:range].pluralize)
-  rescue
-    raise 'unknown selector'
+  def relative_bound(is_date_column, &)
+    return yield if !is_date_column
+
+    date_in_system_timezone(&)
   end
 
   def validate_block_operator!(condition)

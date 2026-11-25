@@ -3,16 +3,18 @@
   stage: lint
   extends:
     - .job_rules_default
+  # Start right away: the caches written in the pre stage only change with the lock
+  #   files, so they are usually filled already.
+  needs: []
 
 .template_lint_rails:
   extends:
     - .template_lint
+    - .template_ruby
   services:
     - !reference [.services, postgresql]
   before_script:
-    - !reference [.scripts, source_rvm]
-    - !reference [.scripts, bundle_install]
-    - !reference [.scripts, configure_environment]
+    - !reference [.template_ruby, before_script]
     - !reference [.scripts, zammad_db_init]
   variables:
     ZAMMAD_SAFE_MODE: 1
@@ -21,16 +23,16 @@
 'lint: shellcheck':
   extends:
     - .template_lint
+  timeout: 2 minutes
   image: koalaman/shellcheck-alpine:stable
-  cache: []
-  before_script: []
   script:
-    - shellcheck -S warning $(find . -name "*.sh" -o -name "functions" | egrep -v "/vendor|node_modules/")
+    - find . \( -name vendor -o -name node_modules \) -prune -o \( -name '*.sh' -o -name functions \) -print0 | xargs -0 shellcheck -S warning
   after_script: []
 
 'lint: i18n & rails':
   extends:
     - .template_lint_rails
+  timeout: 8 minutes
   cache: !reference [.cache, read_only_full]
   script:
     - !reference [.scripts, pnpm_install]
@@ -44,9 +46,11 @@
     - bundle exec rails zeitwerk:check
     - .gitlab/check_graphql_api_consistency.sh
 
-'lint: ruby & security':
+'lint: ruby & brakeman':
   extends:
     - .template_lint
+    - .template_ruby
+  timeout: 10 minutes
   before_script:
     - !reference [.scripts, source_rvm]
     - !reference [.scripts, bundle_install]
@@ -60,11 +64,10 @@
     - echo "Rubocop check…"
     - bundle exec .dev/rubocop/validate_todos.rb
     - bundle exec rubocop --parallel
-    - echo "bundler-audit security check…"
-    - gem exec bundle-audit update
-    - gem exec bundle-audit
+    - echo "Native gem platforms check…"
+    - .gitlab/check_native_gem_platforms.rb
     - echo "Brakeman security check…"
-    - bundle exec brakeman -o /dev/stdout -o tmp/brakeman-report.html
+    - bin/brakeman -o /dev/stdout -o tmp/brakeman-report.html
     - echo "Checking if yard can generate documentation…"
     - bundle exec yard --no-output --no-progress
     - echo "Verify that vendored gems are not world writable"
@@ -73,9 +76,39 @@
     - echo "Finally, ensure cleanup.sh passes…"
     - script/build/cleanup.sh
 
+# The advisory database is fetched at runtime, so a newly published advisory fails this
+#   job without any change in the commit. It therefore blocks only where that is the
+#   point: merge requests that change the gems, and the scheduled pipelines. Everywhere
+#   else it only warns, and the test jobs do not wait for it (see job_needs.yml).
+# Advisories that cannot be fixed yet are ignored in .bundler-audit.yml.
+'lint: bundle-audit':
+  extends:
+    - .template_lint
+    - .template_ruby
+  timeout: 5 minutes
+  rules:
+    - !reference [.rule_fragments, variable_filters]
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .bundler-audit.yml
+        - Gemfile
+        - Gemfile.lock
+      when: on_success
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: on_success
+    - when: on_success
+      allow_failure: true
+  before_script:
+    - !reference [.scripts, source_rvm]
+    - !reference [.scripts, bundle_install]
+  after_script: []
+  script:
+    - bundle exec bundle-audit check --update
+
 'lint: markdown, coffee & css':
   extends:
     - .template_lint
+  timeout: 5 minutes
   cache: !reference [.cache, read_only_nodejs]
   before_script:
     - !reference [.scripts, pnpm_install]
@@ -90,12 +123,16 @@
 'lint: js':
   extends:
     - .template_lint
+  timeout: 10 minutes
   cache:
     - !reference [.cache, read_only_nodejs]
     - !reference [.cache, read_write_eslint]
   before_script:
     - !reference [.scripts, pnpm_install]
     - !reference [.scripts, source_rvm]
+  variables:
+    # V8 derives its default heap limit from host RAM (~1.9 GB on 4 GB runners), too small for vue-tsc.
+    NODE_OPTIONS: '--max-old-space-size=2560'
   script:
     - echo "TypeScript compiler check…"
     - pnpm lint:ts
@@ -112,26 +149,57 @@
     paths:
       - tmp/vite-bundle-stats.yml
 
+# Advisory while fallow is evaluated: reports only the dead code, duplication and
+#   complexity a merge request introduces, never the findings it inherits. No Code
+#   Quality report: GitLab needs one from the target branch to compare against, and
+#   the audit only covers the files a merge request changes.
+'lint: fallow audit':
+  extends:
+    - .template_lint
+  timeout: 5 minutes
+  cache: !reference [.cache, read_only_nodejs]
+  rules:
+    - !reference [.rule_fragments, variable_filters_without_force]
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: on_success
+      allow_failure: true
+    - when: never
+  before_script:
+    - !reference [.scripts, pnpm_install]
+  script:
+    # audit diffs `base...HEAD`, which needs the merge base in the checkout. The MR diff
+    #   base is that merge base, so deepen HEAD's history (depth 1 at checkout, GIT_DEPTH
+    #   has no effect here) until the base commit is an ancestor.
+    # Without --depth, fetching the base into the shallow checkout pulls its whole history.
+    - git fetch --quiet --depth=1 origin "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+    - |
+      for _ in 1 2 3 4 5 6 7 8 9 10; do
+        git merge-base --is-ancestor "$CI_MERGE_REQUEST_DIFF_BASE_SHA" HEAD && break
+        git fetch --quiet --deepen=200 origin "$CI_COMMIT_SHA"
+      done
+      git merge-base --is-ancestor "$CI_MERGE_REQUEST_DIFF_BASE_SHA" HEAD || { echo "MR base $CI_MERGE_REQUEST_DIFF_BASE_SHA not reachable from HEAD after deepening"; exit 1; }
+    - pnpm exec fallow audit --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+  after_script: []
+
 # Must be a separate job because it may fail and is only executed manually.
 'lint: orphaned ruby gems':
   extends:
     - .template_lint_rails
+  timeout: 2 minutes
   allow_failure: true
   rules:
-    - !reference [.job_rules, variable_filters]
-    - when: manual
+    - !reference [.rule_fragments, variable_filters]
+    - !reference [.rule_fragments, then_manual]
   script:
     - bundle exec rake zammad:ci:bundle:orphaned 6
 
 'update CI variables':
   extends:
     - .template_lint_rails
+  timeout: 4 minutes
   rules:
-    - !reference [.job_rules, variable_filters]
-    - if: $CI_PIPELINE_SOURCE != "schedule"
-      when: manual
-      allow_failure: true
-    - when: on_success
+    - !reference [.rule_fragments, variable_filters]
+    - !reference [.rule_fragments, then_manual_unless_scheduled]
   script:
     - bundle exec rake zammad:ci:update_ci_variables
 
@@ -140,13 +208,21 @@
   image:
     name: 'zricethezav/gitleaks:latest'
     entrypoint: ['']
-  cache: []
-  before_script: []
+  timeout: 2 minutes
+  variables:
+    # Go uses all CPUs by default.
+    GOMAXPROCS: 1
   script:
-    # Since we clone with GIT_DEPTH=1, the commit has the entire codebase as a diff.
-    # Otherwise, we'd need to use --no-git to scan the entire codebase, but that is slower
-    #   as it also traverses directories not scanned by git.
-    - gitleaks detect --report-path secret-detection-report.json --verbose
+    # Deep enough to contain the pipeline's base commit, so only the new commits are scanned.
+    #   Setting GIT_DEPTH for this job has no effect, the checkout keeps the depth of 1.
+    - git fetch --quiet --deepen=99 origin "$CI_COMMIT_SHA"
+    # Scan only the commits the pipeline adds. Without a base commit in the checkout
+    #   (scheduled pipelines, new branches, force pushes), scan only the current commit.
+    - BASE="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-$CI_COMMIT_BEFORE_SHA}"
+    - git merge-base --is-ancestor "$BASE" HEAD 2>/dev/null || BASE='HEAD~1'
+    - set -o pipefail; gitleaks git --log-opts="${BASE}..HEAD" --report-path secret-detection-report.json --verbose --no-color 2>&1 | tee gitleaks.log
+    # gitleaks only logs errors of the git commands it runs and still exits successfully.
+    - if grep -qE '(^| )ERR ' gitleaks.log; then echo 'gitleaks reported errors, failing.'; exit 1; fi
   after_script: []
   # # GitLab can show this in a security widget, but that seems to be useless at this point (offers empty file for download).
   # artifacts:

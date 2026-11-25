@@ -130,6 +130,23 @@ module CanBePublished
       end
     }
 
+    # KnowledgeBase::AnswerPolicy#show_public? for a whole relation. A granular reader edits no
+    #   category, so they get published answers without resolving an empty editor set.
+    #
+    # @param [User] user
+    scope :visible_on_help_site_to_user, lambda { |user|
+      shown = all.where(category_id: KnowledgeBase::Category.where(knowledge_base: KnowledgeBase.active).select(:id))
+
+      case KnowledgeBase.access_for_user(user)
+      in :editor
+        shown
+      in :granular if user.permissions?('knowledge_base.editor')
+        shown.where(category: KnowledgeBase::AccessibleCategories.for_user(user).editor).or(shown.published)
+      else
+        shown.published
+      end
+    }
+
     # Returns all currently published answers
     scope :published, lambda {
       timestamp = Time.zone.now
@@ -171,6 +188,14 @@ module CanBePublished
       where(internal.or(published))
         .date_later_or_nil(:archived_at, timestamp)
     }
+
+    # The `.published` condition as SQL on this table, for a correlated subquery that has to be a
+    #   string. The same two comparisons the scope makes, rendered from the same Arel.
+    def self.published_sql(timestamp = Time.zone.now)
+      arel_table[:published_at].lt(timestamp)
+        .and(arel_table[:archived_at].gt(timestamp).or(arel_table[:archived_at].eq(nil)))
+        .to_sql
+    end
 
     scope :date_earlier, lambda { |field, timestamp|
       where arel_table[field].lt(timestamp)

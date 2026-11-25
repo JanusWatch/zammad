@@ -41,13 +41,13 @@ const { getTicketNumberWithTitle } = useTicketNumberAndTitle()
 <template>
   <div v-if="unauthorized" class="flex grow items-center gap-2">
     <CommonIcon class="shrink-0 text-red-500" size="tiny" name="x-lg" />
-    <CommonLabel class="text-black! dark:text-white!">{{ $t('Access denied') }}</CommonLabel>
+    <CommonLabel class="text-contrast!">{{ $t('Access denied') }}</CommonLabel>
   </div>
   <component
     :is="component"
     v-else
     v-tooltip="!noLink ? getTicketNumberWithTitle(ticket?.number, ticket?.title) : undefined"
-    class="flex! grow gap-2 rounded-md break-words group-hover/tab:bg-blue-600 hover:no-underline! focus-visible:rounded-md focus-visible:outline-hidden group-hover/tab:dark:bg-blue-900"
+    class="flex! grow gap-2 rounded-md wrap-break-word group-hover/tab:bg-blue-600 hover:no-underline! focus-visible:rounded-md focus-visible:outline-hidden group-hover/tab:dark:bg-blue-900"
     :class="{
       group: !noLink,
       'items-start': !noWrap,
@@ -76,7 +76,7 @@ const { getTicketNumberWithTitle } = useTicketNumberAndTitle()
       >
         {{ ticket?.title }}
       </CommonLabel>
-      <CommonLabel class="self-start text-stone-200 dark:text-neutral-500">
+      <CommonLabel class="self-start text-muted!">
         <CommonDateTime :date-time="ticket?.createdAt!" />
       </CommonLabel>
     </div>

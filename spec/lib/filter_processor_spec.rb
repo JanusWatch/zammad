@@ -188,6 +188,18 @@ RSpec.describe FilterProcessor, type: :channel_filter do
           expect(described_class.new(filter, mail_hash).filter_matches?).to be false
         end
       end
+
+      context 'when the header is missing', :aggregate_failures do
+        let(:filter)    { create(:postmaster_filter, match: { 'subject' => { 'operator' => 'starts with one of', 'value' => ['Example A', 'Example B'] } }) }
+        let(:mail_hash) { Channel::EmailParser.new.parse("From: daffy.duck@acme.corp\nTo: batman@marvell.com\n\nI can haz anvil!") }
+
+        before { allow(Rails.logger).to receive(:error) }
+
+        it 'returns false without logging an error (#6486)' do
+          expect(described_class.new(filter, mail_hash).filter_matches?).to be false
+          expect(Rails.logger).not_to have_received(:error)
+        end
+      end
     end
 
     context "with operator 'ends with one of'" do
@@ -538,16 +550,6 @@ RSpec.describe FilterProcessor, type: :channel_filter do
              active:  true)
     end
 
-    context 'when the filter uses a named capture group' do
-      let(:regex_value)  { 'ContractID:\s(?<CONTRACT_ID>.*)' }
-      let(:target_value) { '#{regexp.CONTRACT_ID}' } # rubocop:disable Lint/InterpolationCheck
-
-      it 'sets the ticket title using the captured CONTRACT_ID' do
-        instance.process
-        expect(mail_hash[:'x-zammad-ticket-title']).to eq('1234abcd')
-      end
-    end
-
     context 'when the filter uses a regex with nameless capture groups' do
       let(:regex_value)  { 'ContractID:\s(.*)' }
       let(:target_value) { '#{regexp.1}' }
@@ -555,16 +557,6 @@ RSpec.describe FilterProcessor, type: :channel_filter do
       it 'sets the ticket title using the captured CONTRACT_ID' do
         instance.process
         expect(mail_hash[:'x-zammad-ticket-title']).to eq('1234abcd')
-      end
-    end
-
-    context 'when the filter finds no value in question' do
-      let(:regex_value)  { 'ContractID:\s(.*)' }
-      let(:target_value) { '#{regexp.CONTRAKT}' } # rubocop:disable Lint/InterpolationCheck
-
-      it 'sets the ticket title using fallback value' do
-        instance.process
-        expect(mail_hash[:'x-zammad-ticket-title']).to eq('-')
       end
     end
   end

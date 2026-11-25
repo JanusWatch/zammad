@@ -43,6 +43,17 @@ RSpec.describe Service::Search do
       end
     end
 
+    context 'with an empty :ids option' do
+      let(:options) { { ids: [] } }
+
+      it 'finds nothing' do
+        expect(service_result.result).to include(
+          User         => include(objects: be_blank, total_count: 0),
+          Organization => include(objects: be_blank, total_count: 0)
+        )
+      end
+    end
+
     context 'with :per_object_conditions option' do
       let(:options) do
         {
@@ -170,7 +181,7 @@ RSpec.describe Service::Search do
 
       before { allow(SearchIndexBackend).to receive(:enabled?).and_return(true) }
 
-      it 'forwards limit and offset arguments to model#search' do
+      it 'forwards limit and offset arguments to SearchIndexBackend' do
         instance.send(:search_single_model, User)
 
         expect(SearchIndexBackend)
@@ -178,12 +189,56 @@ RSpec.describe Service::Search do
           .with(anything, anything, include(limit: 123, offset: 1024))
       end
 
-      it 'forwards limit and offset arguments to SearchIndexBackend' do
+      it 'forwards limit and offset arguments to model#search' do
         instance.send(:search_single_model, Ticket)
 
         expect(Ticket)
           .to have_received(:search)
           .with(include(limit: 123, offset: 1024))
+      end
+    end
+
+    context 'with :ids option' do
+      before { allow(SearchIndexBackend).to receive(:enabled?).and_return(true) }
+
+      context 'when the list is empty' do
+        let(:options) { { ids: [] } }
+
+        it 'forwards the empty list to SearchIndexBackend' do
+          instance.send(:search_single_model, User)
+
+          expect(SearchIndexBackend)
+            .to have_received(:search_by_index)
+            .with(anything, anything, include(ids: []))
+        end
+
+        it 'forwards the empty list to model#search' do
+          instance.send(:search_single_model, Ticket)
+
+          expect(Ticket)
+            .to have_received(:search)
+            .with(include(ids: []))
+        end
+      end
+
+      context 'when the list is missing' do
+        let(:options) { { ids: nil } }
+
+        it 'passes no ids to SearchIndexBackend' do
+          instance.send(:search_single_model, User)
+
+          expect(SearchIndexBackend)
+            .to have_received(:search_by_index)
+            .with(anything, anything, hash_excluding(:ids))
+        end
+
+        it 'passes no ids to model#search' do
+          instance.send(:search_single_model, Ticket)
+
+          expect(Ticket)
+            .to have_received(:search)
+            .with(hash_excluding(:ids))
+        end
       end
     end
   end

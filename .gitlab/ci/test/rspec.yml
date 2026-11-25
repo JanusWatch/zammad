@@ -4,7 +4,14 @@ include:
 .template_rspec:
   stage: test
   extends:
+    - .template_ruby
     - .job_rules_default
+    - .artifacts_with_test_report
+  needs:
+    - !reference [.needs, ruby]
+    - !reference [.needs, database]
+    - !reference [.needs, lint]
+  timeout: 40 minutes
   script:
     - !reference [.scripts, zammad_db_init]
     - bundle exec rspec --require ./spec/rspec_extensions.rb --exclude-pattern "spec/system/**/*_spec.rb" -t ~searchindex -t ~integration
@@ -19,13 +26,28 @@ include:
 rspec:integration:
   stage: test
   extends:
+    - .template_ruby
     - .variables_proxy
     - .variables_mattermost
     - .variables_s3
+    - .artifacts_with_test_report
+  needs:
+    - !reference [.needs, ruby]
+    - !reference [.needs, database]
+    - !reference [.needs, lint]
+  timeout: 30 minutes
   allow_failure: true
+  # Squid permits CONNECT to 443, 8443 and 3001 only (configs/squid-ci.conf in
+  #   docker/zammad-proxies), so the SSL server of spec/lib/user_agent_spec.rb
+  #   has to stay on 3001 for the examples that go through the proxy service.
+  #   Safe here, and only here: this is the one job that runs that spec, and it
+  #   excludes spec/system, so Capybara never serves on that port alongside it.
+  variables:
+    ZAMMAD_TEST_WEB_SSL_PORT: '3001'
   rules:
-    - !reference [.job_rules, variable_filters]
+    - !reference [.rule_fragments, variable_filters]
     - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: on_success
       allow_failure: true
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
@@ -38,6 +60,7 @@ rspec:integration:
         - spec/integration/**/*
         - test/data/vcr_cassettes/**/*
         - spec/support/{imap,required_envs,vcr}.rb
+        - spec/jobs/ticket_article_communicate_email_job_spec.rb
         - spec/lib/{email_helper_spec.rb,email_helper/**/*}
         - spec/lib/{facebook,microsoft_graph,user_agent}_spec.rb
         - spec/lib/ai/provider/**/*
@@ -67,9 +90,9 @@ rspec:integration:
         - app/models/{channel,external_credential,store,webhook}.rb
         - app/models/{channel,external_credential,store,webhook}/**/*
         - app/services/service/{ai,ticket/external_references}/**/*
+      when: on_success
       allow_failure: true
-    - when: manual
-      allow_failure: true
+    - !reference [.rule_fragments, then_manual]
   services:
     - !reference [.services, postgresql]
     - !reference [.services, imap]

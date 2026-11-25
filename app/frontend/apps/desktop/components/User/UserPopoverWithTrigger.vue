@@ -7,9 +7,9 @@ import CommonUserAvatar, {
   type Props as CommonUserAvatarProps,
 } from '#shared/components/CommonUserAvatar/CommonUserAvatar.vue'
 import type { AvatarUser } from '#shared/components/CommonUserAvatar/types.ts'
+import { isSystemUser } from '#shared/entities/user/utils/isSystemUser.ts'
 import { getIdFromGraphQLId } from '#shared/graphql/utils.ts'
 import { useSessionStore } from '#shared/stores/session.ts'
-import { SYSTEM_USER_ID } from '#shared/utils/constants.ts'
 
 import { type Props as CommonPopoverProps } from '#desktop//components/CommonPopover/CommonPopover.vue'
 import CommonPopoverWithTrigger from '#desktop/components/CommonPopover/CommonPopoverWithTrigger.vue'
@@ -24,6 +24,7 @@ export interface Props {
   noFocusStyling?: boolean
   noHoverStyling?: boolean
   zIndex?: string
+  isMaybe?: boolean
 }
 
 const props = defineProps<Props>()
@@ -46,16 +47,12 @@ const session = useSessionStore()
 
 const hasUserAccess = computed(() => session.hasPermission(['ticket.agent', 'admin.user']))
 
-const isSystemUser = computed(() => {
-  const { id } = props.user
-
-  return id === SYSTEM_USER_ID
-})
+const isSystemAccount = computed(() => isSystemUser(props.user))
 </script>
 
 <template>
   <CommonPopoverWithTrigger
-    v-if="hasUserAccess && !isSystemUser"
+    v-if="hasUserAccess && !isSystemAccount"
     :class="[
       !$slots?.default?.() ? 'rounded-full! focus-visible:outline-2!' : '',
       triggerClass ?? '',
@@ -77,6 +74,7 @@ const isSystemUser = computed(() => {
         :user-avatar="user"
         :has-open-via-long-click="hasOpenedViaLongClick"
         :no-profile-link="!noTriggerLink"
+        :is-maybe="isMaybe"
       />
     </template>
 

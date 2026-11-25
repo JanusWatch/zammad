@@ -24,21 +24,7 @@ vi.mock('@tiptap/vue-3', () => {
 
 vi.mock('@tiptap/pm/state', () => {
   return {
-    PluginKey: vi.fn((name: string) => name),
-  }
-})
-
-vi.mock('prosemirror-model', () => {
-  return {
-    DOMSerializer: {
-      fromSchema: vi.fn(() => ({
-        serializeFragment: vi.fn(() => {
-          const fragment = document.createDocumentFragment()
-          fragment.textContent = 'selected text'
-          return fragment
-        }),
-      })),
-    },
+    PluginKey: class {},
   }
 })
 
@@ -177,7 +163,7 @@ describe('basic toolbar testing', () => {
 
     expect(view.getByIconName('text-modules')).toBeInTheDocument()
 
-    expect(view.getByLabelText('Insert text from knowledge base answer')).toBeInTheDocument()
+    expect(view.getByLabelText('Insert knowledge base answer')).toBeInTheDocument()
     expect(view.getByIconName('book')).toBeInTheDocument()
 
     expect(view.queryByRole('button', { name: 'Mention user' })).not.toBeInTheDocument()

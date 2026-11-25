@@ -52,6 +52,7 @@ import { useKnowledgeBaseSearchTerm } from '../composables/useKnowledgeBaseSearc
 import { useKnowledgeBaseSorting } from '../composables/useKnowledgeBaseSorting.ts'
 import { useKnowledgeBaseSortingSave } from '../composables/useKnowledgeBaseSortingSave.ts'
 import { knowledgeBaseBrowsedTitle } from '../utils/knowledgeBaseBrowsedTitle.ts'
+import { CATEGORY_GRID_CLASSES } from '../utils/knowledgeBaseCategoryGrid.ts'
 
 import type { KnowledgeBaseCategoryCompact, KnowledgeBaseSortingModes } from '../types.ts'
 
@@ -97,6 +98,7 @@ const {
   deletable: categoryDeletable,
   policy: categoryPolicy,
   directAnswerCount,
+  cachedPolicy,
   categorySortingMode,
   answerSortingMode,
 } = useKnowledgeBaseCategorySubcategories({
@@ -120,11 +122,6 @@ const browsedPage = computed(() => `${props.localeCode}:${categoryId.value}`)
 const headerLoading = computed(
   () => loading.value && Boolean(categoryId.value) && !breadcrumb.value.length,
 )
-
-// Size the category skeleton to the opened category's next level when known;
-//   otherwise fall back to a small default.
-const DEFAULT_SKELETON_COUNT = 4
-const categorySkeletonCount = computed(() => directSubcategoryCount.value || DEFAULT_SKELETON_COUNT)
 
 // Adding is gated by whoever would own the new category: the opened category (its own
 //   `createSubcategory`), or the knowledge base at the root — where `CategoryPolicy#create?`
@@ -164,7 +161,7 @@ const storedSortingModes = computed<KnowledgeBaseSortingModes>(() =>
     : { categories: knowledgeBase.value?.categorySortingMode },
 )
 
-const { searchTerm, searchQuery, searchNow } = useKnowledgeBaseSearchTerm()
+const { searchTerm, searchQuery, searchEntity, searchNow } = useKnowledgeBaseSearchTerm()
 
 // While a term is committed to the URL, the results take the place of the browse content —
 //   the category grid and the answer list alike.
@@ -226,7 +223,7 @@ const answerList = useTemplateRef<{ addAnswer: () => void }>('answer-list')
 const addAnswer = () => answerList.value?.addAnswer()
 
 // Fill the trailing gap in the last grid row with placeholder tiles so the row
-//   always looks complete. Must mirror the `grid-cols-*` breakpoints below.
+//   always looks complete. Must mirror the columns of CATEGORY_GRID_CLASSES.
 const GRID_BREAKPOINTS = [
   {
     columns: 1,
@@ -384,6 +381,18 @@ const tileCount = computed(
   () => subcategories.value.length + (canAddCategory.value && !isSortingArmed.value ? 1 : 0),
 )
 
+// The skeleton stands in for those same tiles, so it has to reserve the add card's cell under the
+//   same condition - without it the card appears when loading ends and pushes the answers down.
+//   Its permission comes from the cached record, since the opened category's own policy arrives
+//   only with the query the skeleton is waiting for. An unknown count stays unknown: the skeleton
+//   has its own answer for that (one row at most).
+const skeletonTileCount = computed(() =>
+  directSubcategoryCount.value === undefined
+    ? undefined
+    : directSubcategoryCount.value +
+      (cachedPolicy.value?.createSubcategory && !isSortingArmed.value ? 1 : 0),
+)
+
 // Only the knowledge base root fills the page when it has no tiles: there its empty state is the
 //   entire content. A category without subcategories — a reader sees no add card either — still
 //   has its answers below, so the grid must not stretch above them. Never while sorting, which
@@ -499,6 +508,7 @@ watch(browsedPage, () => {
         <KnowledgeBaseSearchResults
           v-if="searchActive"
           :key="browsedPage"
+          v-model:entity="searchEntity"
           :query="searchQuery"
           :category-id="categoryId"
           :locale="localeCode"
@@ -508,7 +518,7 @@ watch(browsedPage, () => {
 
         <CommonLoader v-else class="flex w-full items-center" :loading="loading">
           <template #skeleton>
-            <KnowledgeBaseCategoryCardSkeleton :count="categorySkeletonCount" />
+            <KnowledgeBaseCategoryCardSkeleton :count="skeletonTileCount" />
           </template>
 
           <!-- One root element: the loader renders its slot inside a <Transition>. -->
@@ -524,7 +534,8 @@ watch(browsedPage, () => {
             <ol
               v-if="!showsSortingEmptyState"
               ref="dnd-parent"
-              class="group focus-visible:outline-offset-0.5! grid grid-cols-1 gap-4 rounded-xl focus-visible-app-default sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
+              class="group rounded-xl focus-visible-app-default focus-visible:outline-offset-0!"
+              :class="CATEGORY_GRID_CLASSES"
               :tabindex="isRearranging ? 0 : undefined"
               :aria-label="isRearranging ? $t('Category order list') : undefined"
               :aria-activedescendant="isRearranging ? focusedItemId : undefined"
@@ -568,17 +579,12 @@ watch(browsedPage, () => {
               class="flex flex-col items-center justify-center gap-4 py-8"
               role="status"
             >
-              <CommonIcon
-                decorative
-                name="folder"
-                size="medium"
-                class="text-stone-200! dark:text-neutral-500!"
-              />
+              <CommonIcon decorative name="folder" size="medium" class="text-muted!" />
               <div class="flex max-w-prose flex-col items-center">
-                <CommonLabel tag="p" class="text-stone-200! dark:text-neutral-500!">
+                <CommonLabel tag="p" class="text-muted!">
                   {{ $t('There are no categories to arrange yet.') }}
                 </CommonLabel>
-                <CommonLabel tag="p" class="text-stone-200! dark:text-neutral-500!">
+                <CommonLabel tag="p" class="text-muted!">
                   {{ $t('The sorting mode you save here will apply to categories added later.') }}
                 </CommonLabel>
               </div>
@@ -588,16 +594,12 @@ watch(browsedPage, () => {
               v-if="showsEmptyState"
               class="flex grow flex-col items-center justify-center gap-2"
             >
-              <CommonIcon
-                name="book"
-                size="medium"
-                class="text-stone-200! dark:text-neutral-500!"
-              />
+              <CommonIcon name="book" size="medium" class="text-muted!" />
               <div class="flex flex-col">
-                <CommonLabel tag="p" class="text-stone-200! dark:text-neutral-500!">
+                <CommonLabel tag="p" class="text-muted!">
                   {{ $t('No knowledge base content is available yet.') }}
                 </CommonLabel>
-                <CommonLabel tag="p" class="text-stone-200! dark:text-neutral-500!">
+                <CommonLabel tag="p" class="text-muted!">
                   {{ $t('Please contact your administrator.') }}
                 </CommonLabel>
               </div>
@@ -627,7 +629,7 @@ watch(browsedPage, () => {
       <CommonIndicator v-model="isReachingBottom" />
 
       <!-- Not while sorting: the bottom bar takes over there, and adding is not on offer. -->
-      <div v-if="!isSortingArmed" class="pointer-none sticky bottom-3 h-0 w-full print:hidden">
+      <div v-if="!isSortingArmed" class="sticky bottom-3 h-0 w-full print:hidden">
         <CommonFloatingToolbar
           :label="$t('Knowledge base actions')"
           :is-reaching-bottom="isReachingBottom"

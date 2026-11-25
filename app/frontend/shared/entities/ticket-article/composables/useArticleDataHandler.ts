@@ -1,13 +1,14 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
 import { noop } from 'lodash-es'
-import { computed, type ComputedRef, nextTick, type Ref } from 'vue'
+import { computed, type ComputedRef, nextTick, type Ref, ref, watch } from 'vue'
 
 import { useTicketArticlesQuery } from '#shared/entities/ticket/graphql/queries/ticket/articles.api.ts'
 import { TicketArticleUpdatesDocument } from '#shared/entities/ticket/graphql/subscriptions/ticketArticlesUpdates.api.ts'
 import type {
   PageInfo,
   TicketArticlesQuery,
+  TicketArticlesQueryVariables,
   TicketArticleUpdatesSubscription,
   TicketArticleUpdatesSubscriptionVariables,
 } from '#shared/graphql/types.ts'
@@ -22,6 +23,7 @@ export interface AddArticleCallbackArgs {
   result: Ref<TicketArticlesQuery | undefined>
   allArticleLoaded: ComputedRef<boolean>
   refetchArticlesQuery: (pageSize: Maybe<number>) => void
+  refetchLoadedArticles: () => void
 }
 
 export const useArticleDataHandler = (
@@ -57,6 +59,51 @@ export const useArticleDataHandler = (
 
   const articleData = computed(() => articleResult.value)
 
+  let previousArticleResult: TicketArticlesQuery | undefined
+  const loadedArticleSelections = computed<TicketArticlesQueryVariables[]>((previousSelections) => {
+    const previous = previousArticleResult
+    const result = articleResult.value
+    previousArticleResult = result
+    const edges = result?.articles.edges
+    if (!edges) return []
+
+    const previousEdges = previous?.articles.edges ?? []
+    const addedCount = edges.length - previousEdges.length
+    const onlyOlderArticlesAdded =
+      addedCount > 0 &&
+      previousEdges.length > 0 &&
+      previousSelections?.[0]?.ticketId === ticketId.value &&
+      previousSelections[0].firstArticlesCount === firstArticlesCount.value &&
+      previousEdges.every((edge, index) => edge === edges[index + addedCount]) &&
+      previous?.firstArticles?.edges.length === result?.firstArticles?.edges.length &&
+      previous?.firstArticles?.edges.every(
+        (edge, index) => edge.node === result?.firstArticles?.edges[index]?.node,
+      )
+
+    // Anchor chunks at the newest end so fetching older articles preserves completed full pages.
+    const pageSize = 2000
+    const selections: TicketArticlesQueryVariables[] = []
+
+    for (let offset = 0; offset < Math.max(edges.length, 1); offset += pageSize) {
+      const end = edges.length - offset
+      const previousSelection = onlyOlderArticlesAdded && previousSelections?.[selections.length]
+      if (previousSelection && previousSelection.pageSize === pageSize) {
+        selections.push(previousSelection)
+        continue
+      }
+
+      selections.push({
+        ticketId: ticketId.value,
+        firstArticlesCount: firstArticlesCount.value,
+        loadFirstArticles: offset === 0,
+        pageSize: Math.min(pageSize, end),
+        beforeCursor: edges[end]?.cursor,
+      })
+    }
+
+    return selections
+  })
+
   const allArticleLoaded = computed(() => {
     if (!articleResult.value?.articles.totalCount) return false
     return articleResult.value?.articles.edges.length < articleResult.value?.articles.totalCount
@@ -68,6 +115,32 @@ export const useArticleDataHandler = (
       pageSize,
     })
   }
+
+  // Older articles loaded on demand widen the trailing page, even when fewer came back than asked.
+  const requestedPageSize = ref(options.pageSize)
+  watch(ticketId, () => {
+    requestedPageSize.value = options.pageSize
+  })
+
+  const loadPreviousArticles = async (pageSize: number) => {
+    const requestedTicketId = ticketId.value
+    const result = await articlesQuery.fetchMore({
+      variables: {
+        pageSize,
+        loadFirstArticles: false,
+        beforeCursor: articleResult.value?.articles.pageInfo.startCursor,
+      },
+    })
+    if (!result.error && requestedTicketId === ticketId.value) requestedPageSize.value += pageSize
+
+    return result
+  }
+
+  // A plain refetch would shrink the list to the first page and drop what was loaded on demand.
+  const refetchLoadedArticles = () =>
+    articlesQuery.refetch({
+      pageSize: Math.max(requestedPageSize.value, articleResult.value?.articles.edges.length ?? 0),
+    })
 
   const isLoadingArticles = articlesQuery.loadingWithoutCachedResult()
 
@@ -96,6 +169,12 @@ export const useArticleDataHandler = (
     updateQuery(_, { previousData, subscriptionData }) {
       const updates = subscriptionData.data.ticketArticleUpdates
       const previousArticles = previousData?.articles as TicketArticlesQuery['articles']
+
+      if (updates.refetchArticles) {
+        refetchLoadedArticles()
+
+        return previousData as TicketArticlesQuery
+      }
 
       if (!previousArticles || updates.updateArticle) return previousData as TicketArticlesQuery
 
@@ -151,6 +230,7 @@ export const useArticleDataHandler = (
           result: articleResult,
           allArticleLoaded,
           refetchArticlesQuery,
+          refetchLoadedArticles,
         })
       }
 
@@ -163,6 +243,8 @@ export const useArticleDataHandler = (
     articleData,
     allArticleLoaded,
     isLoadingArticles,
+    loadedArticleSelections,
+    loadPreviousArticles,
     refetchArticlesQuery,
   }
 }

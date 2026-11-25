@@ -22,7 +22,7 @@ export const useInlineMode = (
   const isInlineMode = computed(() => context.value.inline)
 
   const onWrapperClick = () => {
-    if (isEditing.value || !isInlineMode.value) return
+    if (isEditing.value || !isInlineMode.value || context.value.disabled) return
     isEditing.value = true
   }
 
@@ -82,7 +82,7 @@ export const useInlineMode = (
     { ignore: ['.editor-action-popover', '.editor-overflow-popover'] },
   )
 
-  const labelInlineDesktopClasses = 'text-stone-200! dark:text-neutral-500!'
+  const labelInlineDesktopClasses = 'text-muted!'
 
   const wrapperInlineDesktopClasses = computed(() =>
     appName === 'desktop'

@@ -4,12 +4,20 @@ class Integration::CheckMkController < ApplicationController
   skip_before_action :verify_csrf_token
   before_action :check_configured
 
+  http_log_config facility: 'check_mk'
+
   def update
 
     # check params
     raise Exceptions::UnprocessableContent, 'event_id is missing!' if params[:event_id].blank?
     raise Exceptions::UnprocessableContent, 'state is missing!' if params[:state].blank?
     raise Exceptions::UnprocessableContent, 'host is missing!' if params[:host].blank?
+
+    # validate ticket attributes like group up front so every code path responds the same way (#6336)
+    ticket_attributes = Ticket.param_cleanup(Ticket.association_name_to_id_convert(params.except(:state, :customer)))
+    if ticket_attributes['group_id'].present? && !Group.lookup(id: ticket_attributes['group_id'])
+      raise Exceptions::UnprocessableContent, "No value found for 'group' with id #{ticket_attributes['group_id'].inspect}"
+    end
 
     # search for open ticket
     auto_close = Setting.get('check_mk_auto_close')
@@ -95,7 +103,7 @@ UserAgent: #{request.env['HTTP_USER_AGENT'] || '-'}
     # define customer of ticket
     customer = nil
     if params[:customer].present?
-      customer = User.find_by(login: params[:customer].downcase)
+      customer = User.by_login(params[:customer]).take
       if !customer
         customer = User.find_by(email: params[:customer].downcase)
       end
@@ -104,9 +112,7 @@ UserAgent: #{request.env['HTTP_USER_AGENT'] || '-'}
       customer = User.lookup(id: 1)
     end
 
-    params[:state] = nil
-    params[:customer] = nil
-    ticket = Ticket.new(Ticket.param_cleanup(Ticket.association_name_to_id_convert(params)))
+    ticket = Ticket.new(ticket_attributes)
     ticket.group_id ||= group_id
     ticket.customer_id = customer.id
     ticket.title = title
@@ -137,8 +143,6 @@ UserAgent: #{request.env['HTTP_USER_AGENT'] || '-'}
   private
 
   def check_configured
-    http_log_config facility: 'check_mk'
-
     if !Setting.get('check_mk_integration')
       raise Exceptions::UnprocessableContent, __('Feature is disabled, please contact your administrator!')
     end

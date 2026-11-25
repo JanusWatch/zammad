@@ -1,10 +1,15 @@
 <!-- Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/ -->
 
 <script setup lang="ts">
+import { useTemplateRef } from 'vue'
+
+import { useArticleTranslationStore } from '#shared/entities/ticket-article/stores/articleTranslation.ts'
+
 import CommonButton from '#desktop/components/CommonButton/CommonButton.vue'
 import CommonInlineEdit from '#desktop/components/CommonInlineEdit/CommonInlineEdit.vue'
 import OrganizationPopoverWithTrigger from '#desktop/components/Organization/OrganizationPopoverWithTrigger.vue'
 import UserPopoverWithTrigger from '#desktop/components/User/UserPopoverWithTrigger.vue'
+import ArticleTranslationTargetMenu from '#desktop/pages/ticket/components/TicketDetailView/TicketDetailTopBar/components/ArticleTranslationTargetMenu.vue'
 import HighlightMenu from '#desktop/pages/ticket/components/TicketDetailView/TicketDetailTopBar/components/HighlightMenu.vue'
 
 import { useTopBarHeader } from './useTopBarHeader.ts'
@@ -15,10 +20,17 @@ const {
   ticketNumberWithTicketHook,
   isTicketAgent,
   isTicketEditable,
+  isSystemCustomer,
   copyTicketNumberToClipboard,
   isUpdatingTitle,
   updateTitle,
 } = useTopBarHeader()
+
+const translationStore = useArticleTranslationStore()
+
+const titleLine = useTemplateRef('title-line')
+
+defineExpose({ titleLine })
 </script>
 
 <template>
@@ -27,7 +39,7 @@ const {
     :class="{ '@7xl:grid-cols-[1fr_minmax(0,56rem)_1fr]': ticket?.organization }"
   >
     <div class="col-start-1 row-start-1 flex items-center gap-1.5">
-      <h1 class="line-clamp-1 text-xs break-all text-black dark:text-white">
+      <h1 class="line-clamp-1 text-xs break-all text-contrast">
         {{ ticketNumberWithTicketHook }}
       </h1>
       <CommonButton
@@ -46,6 +58,7 @@ const {
     <!-- 48rem for the middle grid to align with the content area -->
     <div
       v-if="ticket"
+      ref="title-line"
       class="col-start-1 row-start-2 grid max-w-4xl grid-cols-[1fr_minmax(0,48rem)_1fr] items-center gap-3 justify-self-center @4xl:col-span-2 @7xl:col-start-2 @7xl:row-start-1 @7xl:max-w-none @7xl:justify-self-start"
     >
       <div
@@ -57,6 +70,8 @@ const {
           class="z-11 h-min shrink-0"
           :avatar-config="{
             size: 'small',
+            noIndicator: isSystemCustomer,
+            noMuted: isSystemCustomer,
           }"
           :popover-config="{
             placement: 'arrowStart',
@@ -78,13 +93,14 @@ const {
 
       <!-- 48rem for the middle grid to align with the content area -->
       <!-- 1.5 rem some extra spacing => 46.5rem-->
-      <div class="justify-start-center w-full max-w-186">
+      <div class="w-full max-w-186">
         <div class="flex flex-col justify-center">
           <CommonInlineEdit
             v-model:editing="isUpdatingTitle"
             size="xl"
             required
             block
+            single-line
             max-length="255"
             :value="ticket.title"
             :disabled="!ticket.policy.update"
@@ -104,11 +120,11 @@ const {
     </div>
 
     <div
-      v-if="isTicketAgent && isTicketEditable"
-      class="col-start-2 justify-self-end @7xl:col-start-3 @7xl:row-start-1"
+      v-if="isTicketAgent && (isTicketEditable || translationStore.isAvailable)"
+      class="col-start-2 flex gap-2 justify-self-end @7xl:col-start-3 @7xl:row-start-1"
     >
-      <!-- Div because we add soon more actions here  -->
-      <HighlightMenu />
+      <ArticleTranslationTargetMenu v-if="translationStore.isAvailable" />
+      <HighlightMenu v-if="isTicketEditable" />
     </div>
   </header>
 </template>

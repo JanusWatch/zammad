@@ -30,7 +30,7 @@ export default function useEditorActions(
 ) {
   const { focused, isActive } = useEditorActionHelper(editor)
 
-  // this is primarily used by cypress tests, where it requires an actual input in the DOM tree
+  // kept in the DOM tree, so that browser specs can upload images through it
   let fileInput: HTMLInputElement | null = null
 
   const getInputForImage = () => {
@@ -87,7 +87,7 @@ export default function useEditorActions(
         id: getUuid(),
         name: KnowledgeBaseMentionName,
         contentType: ['text/html', 'text/plain'],
-        label: __('Insert text from knowledge base answer'),
+        label: __('Insert knowledge base answer'),
         icon: 'editor-mention-knowledge-base',
         command: focused((c) => c.openKnowledgeBaseMention()),
         permission: 'ticket.agent',

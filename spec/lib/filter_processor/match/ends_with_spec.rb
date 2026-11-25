@@ -14,7 +14,7 @@ RSpec.describe FilterProcessor::Match::EndsWith do
       it { is_expected.to be(true) }
     end
 
-    context 'with a correct beginning but upper letter matching single rule' do
+    context 'when the value ends with a rule in different case' do
       let(:rules) { ['Bar'] }
 
       it { is_expected.to be(true) }
@@ -22,6 +22,20 @@ RSpec.describe FilterProcessor::Match::EndsWith do
 
     context 'when the value does not end with any rule' do
       let(:rules) { ['far'] }
+
+      it { is_expected.to be(false) }
+    end
+
+    context 'when the value is nil' do
+      let(:from)  { nil }
+      let(:rules) { ['foo'] }
+
+      it { is_expected.to be(false) }
+    end
+
+    context 'when the value is empty' do
+      let(:from)  { '' }
+      let(:rules) { ['foo'] }
 
       it { is_expected.to be(false) }
     end

@@ -1,24 +1,27 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
-import { ApolloLink, createHttpLink, from } from '@apollo/client/core'
+import { ApolloLink, HttpLink } from '@apollo/client'
 import { BatchHttpLink } from '@apollo/client/link/batch-http'
-import { removeTypenameFromVariables } from '@apollo/client/link/remove-typename'
+import { RemoveTypenameFromVariablesLink } from '@apollo/client/link/remove-typename'
 import { getMainDefinition } from '@apollo/client/utilities'
 import ActionCableLink from 'graphql-ruby-client/subscriptions/ActionCableLink'
 
 import { consumer } from '#shared/server/action_cable/consumer.ts'
-import getUuid from '#shared/utils/getUuid.ts'
 
+import authenticationGenerationLink from './link/authenticationGeneration.ts'
 import csrfLink from './link/csrf.ts'
 import debugLink from './link/debug.ts'
 import errorLink from './link/error.ts'
 import setAuthorizationLink from './link/setAuthorization.ts'
-import skipSubscriptionResultLink from './link/skipSubscriptionResult.ts'
+import skipSubscriptionsLink from './link/skipSubscriptions.ts'
 import testFlagsLink from './link/testFlags.ts'
+import trackOperationsLink from './link/trackOperations.ts'
+import { browserTabId } from './utils/browserTabId.ts'
+import { createUuid } from './utils/createUuid.ts'
 import getBatchContext from './utils/getBatchContext.ts'
+import { getSkipSubscriptions } from './utils/getSkipSubscriptions.ts'
 import getWebsocketContext from './utils/getWebsocketContext.ts'
 
-import type { Operation } from '@apollo/client/core'
 import type { FragmentDefinitionNode, OperationDefinitionNode } from 'graphql'
 
 // Should subsequent HTTP calls be batched together?
@@ -30,9 +33,9 @@ const enableQueriesOverWebsocket = false
 const connectionSettings = {
   uri: '/graphql',
   credentials: 'same-origin', // Must have for CSRF validation via Rails.
-}
+} as const
 
-const noBatchLink = createHttpLink(connectionSettings)
+const noBatchLink = new HttpLink(connectionSettings)
 
 const batchLink = new BatchHttpLink({
   ...connectionSettings,
@@ -49,7 +52,7 @@ const operationIsLoginLogout = (definition: OperationDefinitionNode | FragmentDe
   )
 }
 
-const requiresBatchLink = (op: Operation) => {
+const requiresBatchLink = (op: ApolloLink.Operation) => {
   if (!enableBatchLink) return false
 
   const definition = getMainDefinition(op.query)
@@ -65,7 +68,7 @@ const requiresBatchLink = (op: Operation) => {
 
 const httpLink = ApolloLink.split(requiresBatchLink, batchLink, noBatchLink)
 
-const requiresHttpLink = (op: Operation) => {
+const requiresHttpLink = (op: ApolloLink.Operation) => {
   const definition = getMainDefinition(op.query)
 
   const websocketContext = getWebsocketContext(op)
@@ -82,20 +85,28 @@ const requiresHttpLink = (op: Operation) => {
   return operationIsLoginLogout(definition)
 }
 
-// Because "crypto" is only available in secure context we add a fallback.
-const createChannelId = (): string => globalThis.crypto?.randomUUID?.() ?? getUuid()
-const actionCableLink = new ActionCableLink({ cable: consumer, createChannelId })
+// Every operation opens its own channel, so its params act like the headers of an HTTP request.
+const actionCableLink = new ActionCableLink({
+  cable: consumer,
+  createChannelId: createUuid,
+  connectionParams: (operation) => ({
+    browserTabId,
+    skipSubscriptions: getSkipSubscriptions(operation),
+  }),
+})
 
 const splitLink = ApolloLink.split(requiresHttpLink, httpLink, actionCableLink)
 
-const link = from([
+const link = ApolloLink.from([
   ...(VITE_TEST_MODE ? [testFlagsLink] : []),
   csrfLink,
+  authenticationGenerationLink,
   errorLink,
   setAuthorizationLink,
+  skipSubscriptionsLink,
   debugLink,
-  skipSubscriptionResultLink,
-  removeTypenameFromVariables(),
+  new RemoveTypenameFromVariablesLink(),
+  trackOperationsLink,
   splitLink,
 ])
 

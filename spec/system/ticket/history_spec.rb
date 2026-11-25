@@ -59,44 +59,17 @@ RSpec.describe 'Ticket history', time_zone: 'Europe/London', type: :system do
       click('[data-type="ticket-history"]')
     end
 
-    it 'shows group name in human readable form' do
+    it 'shows human readable and translated history entries', :aggregate_failures do
       expect(page).to have_text("#{group.name_last} › #{subgroup.name_last}")
-    end
-
-    it "translates timestamp when attribute's tag is datetime" do
       expect(page).to have_css('li', text: %r{22.01.2021 13:40})
-    end
-
-    it 'does not include time with UTC format' do
-      expect(page).to have_no_text(%r{ UTC})
-    end
-
-    it 'translates value when attribute is state' do
       expect(page).to have_css('li', text: %r{Ticket Status von 'neu'})
-    end
-
-    it 'translates value when attribute is priority' do
       expect(page).to have_css('li', text: %r{Ticket Priorität von '1 niedrig'})
-    end
-
-    it 'translates value when attribute is internal' do
       expect(page).to have_css('li', text: %r{Artikel intern von 'true'})
-    end
-
-    it 'translates last_contact_at display attribute' do
       expect(page).to have_css('li', text: %r{Ticket Letzter Kontakt von '22.01.2021 13:40' → '07.04.2021 00:30'})
-    end
-
-    it 'translates last_contact_customer_at display attribute' do
       expect(page).to have_css('li', text: %r{Ticket Letzter Kontakt \(Kunde\) von '22.01.2021 13:40' → '07.04.2021 00:30'})
-    end
-
-    it 'translates last_contact_agent_at display attribute' do
       expect(page).to have_css('li', text: %r{Ticket Letzter Kontakt \(Agent\) von '22.01.2021 13:40' → '07.04.2021 00:30'})
-    end
-
-    it 'translates pending_time display attribute' do
       expect(page).to have_css('li', text: %r{Ticket Warten bis '07.04.2021 00:30'})
+      expect(page).to have_no_text(%r{ UTC})
     end
   end
 
@@ -118,6 +91,28 @@ RSpec.describe 'Ticket history', time_zone: 'Europe/London', type: :system do
       text = "trigger '#{trigger.name}' was performed because pending reminder was reached"
 
       expect(page).to have_css('li', text: Regexp.new(text))
+    end
+  end
+
+  context 'with sent notification' do
+    let(:group) { Group.first }
+
+    before do
+      History.add(
+        o_id:           ticket.id,
+        history_type:   'notification',
+        history_object: 'Ticket',
+        value_to:       'john.doe@example.com(reminder_reached:online,email)',
+        created_by_id:  1,
+      )
+
+      visit "#ticket/zoom/#{ticket.id}"
+      find('[data-tab="ticket"] .js-actions').click
+      click('[data-type="ticket-history"]')
+    end
+
+    it 'shows the reason and channels in human readable form' do
+      expect(page).to have_css('li', text: "notification sent to 'john.doe@example.com' (Ticket reminder reached: Online, Email)")
     end
   end
 end

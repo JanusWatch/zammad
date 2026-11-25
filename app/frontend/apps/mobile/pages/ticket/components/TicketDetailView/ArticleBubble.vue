@@ -42,6 +42,7 @@ interface Props {
   mediaError?: boolean | null
   bodyRenderingError?: boolean | null
   reaction?: string
+  actionPending?: boolean
 }
 
 const props = defineProps<Props>()
@@ -157,6 +158,8 @@ onMounted(() => {
 useArticleSeen(bubbleElement, emit)
 
 const onContextClick = () => {
+  if (props.actionPending) return
+
   emit('show-context')
   nextTick(() => {
     // remove selection because pointerdown event will leave it as is,
@@ -181,7 +184,7 @@ const onContextClick = () => {
     :data-created-by="user?.id"
   >
     <div
-      class="h-6 w-6 self-end"
+      class="size-6 self-end"
       :class="{
         'ltr:mr-2 rtl:ml-2': position === 'left',
         'ltr:ml-2 rtl:mr-2': position === 'right',
@@ -195,7 +198,7 @@ const onContextClick = () => {
         :class="[bubbleClasses, colorClasses]"
       >
         <div class="flex items-center text-xs font-bold" data-test-id="article-username">
-          <span class="truncate break-words">
+          <span class="truncate wrap-break-word">
             {{ username }}
           </span>
         </div>
@@ -269,14 +272,22 @@ const onContextClick = () => {
             {{ shownMore ? $t('See less') : $t('See more') }}
           </button>
           <button
-            :class="[colorClasses, 'flex h-7 w-7 items-center justify-center rounded-md']"
+            :class="[colorClasses, 'flex size-7 items-center justify-center rounded-md']"
             type="button"
             data-name="article-context"
             :aria-label="$t('Article actions')"
+            :aria-busy="actionPending"
+            :disabled="actionPending"
             @pointerdown="onContextClick()"
             @keydown.enter.prevent="onContextClick()"
           >
-            <CommonIcon name="more-vertical" size="small" decorative data-ignore-click />
+            <CommonIcon
+              :name="actionPending ? 'loading' : 'more-vertical'"
+              :animation="actionPending ? 'spin' : undefined"
+              size="small"
+              decorative
+              data-ignore-click
+            />
           </button>
         </div>
       </div>

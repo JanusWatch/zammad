@@ -1,6 +1,6 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
-import { ref } from 'vue'
+import { effectScope, ref } from 'vue'
 
 import { waitUntil } from '#tests/support/utils.ts'
 
@@ -13,7 +13,7 @@ describe('useOnlineNotificationSeen', () => {
     const mockSeen = mockOnlineNotificationSeenGql()
     const object = ref<ObjectWithId | undefined>(undefined)
 
-    useOnlineNotificationSeen(object)
+    effectScope(true).run(() => useOnlineNotificationSeen(object))
 
     object.value = { id: '2' }
 
@@ -21,6 +21,19 @@ describe('useOnlineNotificationSeen', () => {
 
     expect(mockSeen.spies.resolve).toHaveBeenCalledWith({
       objectId: '2',
+    })
+  })
+
+  it('calls mutation when the object is already there', async () => {
+    const mockSeen = mockOnlineNotificationSeenGql()
+    const object = ref<ObjectWithId | undefined>({ id: '3' })
+
+    effectScope(true).run(() => useOnlineNotificationSeen(object))
+
+    await waitUntil(() => mockSeen.calls.resolve)
+
+    expect(mockSeen.spies.resolve).toHaveBeenCalledWith({
+      objectId: '3',
     })
   })
 })

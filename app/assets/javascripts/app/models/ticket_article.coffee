@@ -71,6 +71,11 @@ class App.TicketArticle extends App.Model
     attrs
 
   recipientName: ->
-    user   = App.User.find((@origin_by_id || @created_by_id))
+    user = App.User.find((@origin_by_id || @created_by_id))
+    return if !user
+
     ticket = App.Ticket.find(@ticket_id)
-    return user.recipientName(ticket, false)
+
+    # Prefer the address the mail was actually sent from, like the forwarded
+    #   quote header does.
+    user.recipientName(ticket, false, App.FullQuoteHeader.fullQuoteHeaderRecordedEmailAddress(@))

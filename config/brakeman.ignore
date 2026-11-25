@@ -24,29 +24,6 @@
       "note": "Ordering SQL assembled from constants only: the column is a literal symbol at every call site, quoted with quote_column_name, and the locale ids are bound through sanitize_sql_array in .preferred_translation_sql. The sorting mode selects a branch, it is never interpolated."
     },
     {
-      "warning_type": "Remote Code Execution",
-      "warning_code": 24,
-      "fingerprint": "0fcd117fd53301f531142fc075ee8d30219c1239affce9322f9939ac0572ba3b",
-      "check_name": "UnsafeReflection",
-      "message": "Unsafe reflection method `constantize` called on model attribute",
-      "file": "app/models/ticket/number.rb",
-      "line": 45,
-      "link": "https://brakemanscanner.org/docs/warning_types/remote_code_execution/",
-      "code": "Setting.get(\"ticket_number\").constantize",
-      "render_path": null,
-      "location": {
-        "type": "method",
-        "class": "Ticket::Number",
-        "method": "Ticket::Number.adapter"
-      },
-      "user_input": "Setting.get(\"ticket_number\")",
-      "confidence": "Medium",
-      "cwe_id": [
-        470
-      ],
-      "note": "Setting.get(\"ticket_number\") returns defined ticket number backend class names"
-    },
-    {
       "warning_type": "Denial of Service",
       "warning_code": 76,
       "fingerprint": "15d4ddbc3ac2ae0a0fe27218a42a1920fe2c1868ae5f504422c4af8ffe893beb",
@@ -365,6 +342,29 @@
       "note": "Reflections come from the models themselves and are thus safe to use."
     },
     {
+      "warning_type": "SQL Injection",
+      "warning_code": 0,
+      "fingerprint": "55419ab9d2d0951b6234824e1462e07cc8f1f02e3822e004df1f5044f32cbfbb",
+      "check_name": "SQL",
+      "message": "Possible SQL injection",
+      "file": "app/models/knowledge_base.rb",
+      "line": 112,
+      "link": "https://brakemanscanner.org/docs/warning_types/sql_injection/",
+      "code": "where(\"EXISTS (SELECT 1 FROM knowledge_base_answers\\n          JOIN knowledge_base_categories ON knowledge_base_categories.id = knowledge_base_answers.category_id\\n         WHERE knowledge_base_categories.knowledge_base_id = knowledge_bases.id\\n           AND #{KnowledgeBase::Answer.published_translated_sql(system_locale_or_id)}\\n         OFFSET 0)\\n\".squish)",
+      "render_path": null,
+      "location": {
+        "type": "method",
+        "class": "KnowledgeBase",
+        "method": "with_public_content_in"
+      },
+      "user_input": "KnowledgeBase::Answer.published_translated_sql(system_locale_or_id)",
+      "confidence": "High",
+      "cwe_id": [
+        89
+      ],
+      "note": "SQL assembled from constants only: .published_translated_sql binds the locale id through sanitize_sql_array and renders the publication condition from Arel in .published_sql."
+    },
+    {
       "warning_type": "Remote Code Execution",
       "warning_code": 24,
       "fingerprint": "582df3b442a09879f0c035b50f6c4fce9aa8285c907737476f16004246c67bc6",
@@ -390,6 +390,29 @@
     {
       "warning_type": "SQL Injection",
       "warning_code": 0,
+      "fingerprint": "58cb90d51ea08ea0833e7030a0e2138825628e36a1c3fa4fbe2e0dce41b17f32",
+      "check_name": "SQL",
+      "message": "Possible SQL injection",
+      "file": "app/services/service/content_translation/ticket_article.rb",
+      "line": 28,
+      "link": "https://brakemanscanner.org/docs/warning_types/sql_injection/",
+      "code": "AI::StoredResult.select([:id, :related_object_id, :metadata]).joins(\"INNER JOIN ticket_articles ON ticket_articles.id = ai_stored_results.related_object_id\").where(:identifier => Service::AI::Feature::Translate.identifier, :locale => Locale.find_by(:locale => target_locale, :active => true), :related_object_type => \"Ticket::Article\", :related_object_id => articles.map(&:id)).where(\"ai_stored_results.version = #{version_sql}\")",
+      "render_path": null,
+      "location": {
+        "type": "method",
+        "class": "Service::ContentTranslation::TicketArticle",
+        "method": "self.stored_translations"
+      },
+      "user_input": "version_sql",
+      "confidence": "Medium",
+      "cwe_id": [
+        89
+      ],
+      "note": "Version SQL assembled without request data: .lookup_version_sql has one call site, which passes two hard-coded SQL fragments plus the backend name of the configured service - a literal defined on the backend class, quoted with connection.quote before it is interpolated into a fixed digest expression. The locale and the article ids are bound parameters."
+    },
+    {
+      "warning_type": "SQL Injection",
+      "warning_code": 0,
       "fingerprint": "687d16bd4eea300cd239f4d6e9905bac0a8f3494d93b9bc0f6de835cb937286f",
       "check_name": "SQL",
       "message": "Possible SQL injection",
@@ -409,29 +432,6 @@
         89
       ],
       "note": "`name` is always the fixed CTE name from #recursive_tree_cte_name ('recursive_tree'), never derived from user/request input."
-    },
-    {
-      "warning_type": "Remote Code Execution",
-      "warning_code": 24,
-      "fingerprint": "7541faf8d3249dc4ac24f9c354024614ae79b0d6cd4c057f034ea88be1154bf7",
-      "check_name": "UnsafeReflection",
-      "message": "Unsafe reflection method `constantize` called on model attribute",
-      "file": "lib/application_lib.rb",
-      "line": 26,
-      "link": "https://brakemanscanner.org/docs/warning_types/remote_code_execution/",
-      "code": "Setting.get(setting).constantize",
-      "render_path": null,
-      "location": {
-        "type": "method",
-        "class": "ApplicationLib::ClassMethods",
-        "method": "load_adapter_by_setting"
-      },
-      "user_input": "Setting.get(setting)",
-      "confidence": "Medium",
-      "cwe_id": [
-        470
-      ],
-      "note": "ApplicationLib.load_adapter_by_setting works as designed"
     },
     {
       "warning_type": "Denial of Service",
@@ -456,6 +456,52 @@
         185
       ],
       "note": "Admin configured RegExp"
+    },
+    {
+      "warning_type": "SQL Injection",
+      "warning_code": 0,
+      "fingerprint": "82a90dfbbfc2648d9aa5157a4c48569ffc4eb92d18d7f3d5aec026aa9afaaeed",
+      "check_name": "SQL",
+      "message": "Possible SQL injection",
+      "file": "app/models/knowledge_base/locale.rb",
+      "line": 77,
+      "link": "https://brakemanscanner.org/docs/warning_types/sql_injection/",
+      "code": "where(\"EXISTS (SELECT 1 FROM knowledge_base_answer_translations\\n          JOIN knowledge_base_answers ON knowledge_base_answers.id = knowledge_base_answer_translations.answer_id\\n         WHERE knowledge_base_answer_translations.kb_locale_id = knowledge_base_locales.id\\n           AND knowledge_base_answers.category_id IN (#{(KnowledgeBase::Category.subtree_ids_sql(Integer(KnowledgeBase::Category.id)) or sanitize_sql_array([\"SELECT id FROM knowledge_base_categories WHERE knowledge_base_id = ?\", KnowledgeBase.id]))})\\n           AND #{KnowledgeBase::Answer.published_sql}\\n         OFFSET 0)\\n\".squish)",
+      "render_path": null,
+      "location": {
+        "type": "method",
+        "class": "KnowledgeBase::Locale",
+        "method": "available_for"
+      },
+      "user_input": "KnowledgeBase::Category.subtree_ids_sql(Integer(KnowledgeBase::Category.id))",
+      "confidence": "High",
+      "cwe_id": [
+        89
+      ],
+      "note": "SQL assembled from constants only: the category subtree is built from Integer(object.id), the knowledge base variant binds its id through sanitize_sql_array, and .published_sql renders the publication condition from Arel."
+    },
+    {
+      "warning_type": "SQL Injection",
+      "warning_code": 0,
+      "fingerprint": "da792521ebb34fcee3625126747222dae19e77ddae1c25c71a66528283827a0a",
+      "check_name": "SQL",
+      "message": "Possible SQL injection",
+      "file": "app/models/concerns/has_translations.rb",
+      "line": 43,
+      "link": "https://brakemanscanner.org/docs/warning_types/sql_injection/",
+      "code": "eager_load(:translations).where(\"#{translation_class.table_name}.id = (#{preferred_translation_sql(:id, system_locale_or_id)})\")",
+      "render_path": null,
+      "location": {
+        "type": "method",
+        "class": "HasTranslations",
+        "method": null
+      },
+      "user_input": "preferred_translation_sql(:id, system_locale_or_id)",
+      "confidence": "Weak",
+      "cwe_id": [
+        89
+      ],
+      "note": "SQL assembled from constants only: the table name is the model's own translation table, and .preferred_translation_sql quotes the literal column with quote_column_name and binds the locale ids through sanitize_sql_array."
     },
     {
       "warning_type": "SQL Injection",
@@ -744,52 +790,6 @@
         89
       ],
       "note": "`recursive_tree_cte_name` is a fixed literal ('recursive_tree') and `table_name` is the model's own Rails table name -- neither is ever derived from user/request input."
-    },
-    {
-      "warning_type": "Remote Code Execution",
-      "warning_code": 24,
-      "fingerprint": "d48809837203098f7be4803f19b4f180f93361030bcf145560c65582d44f8edc",
-      "check_name": "UnsafeReflection",
-      "message": "Unsafe reflection method `constantize` called on model attribute",
-      "file": "app/models/channel/email_parser.rb",
-      "line": 173,
-      "link": "https://brakemanscanner.org/docs/warning_types/remote_code_execution/",
-      "code": "Setting.get(setting.name).constantize",
-      "render_path": null,
-      "location": {
-        "type": "method",
-        "class": "Channel::EmailParser",
-        "method": "_process"
-      },
-      "user_input": "Setting.get(setting.name)",
-      "confidence": "Medium",
-      "cwe_id": [
-        470
-      ],
-      "note": "Setting.where(area: 'Postmaster::PreFilter').order(:name) returns defined postmaster backend class names"
-    },
-    {
-      "warning_type": "Remote Code Execution",
-      "warning_code": 24,
-      "fingerprint": "d48809837203098f7be4803f19b4f180f93361030bcf145560c65582d44f8edc",
-      "check_name": "UnsafeReflection",
-      "message": "Unsafe reflection method `constantize` called on model attribute",
-      "file": "app/models/channel/email_parser.rb",
-      "line": 329,
-      "link": "https://brakemanscanner.org/docs/warning_types/remote_code_execution/",
-      "code": "Setting.get(setting.name).constantize",
-      "render_path": null,
-      "location": {
-        "type": "method",
-        "class": "Channel::EmailParser",
-        "method": "_process"
-      },
-      "user_input": "Setting.get(setting.name)",
-      "confidence": "Medium",
-      "cwe_id": [
-        470
-      ],
-      "note": "Setting.where(area: 'Postmaster::PreFilter').order(:name) returns defined postmaster backend class names"
     },
     {
       "warning_type": "Remote Code Execution",

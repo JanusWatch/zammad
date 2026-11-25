@@ -1,8 +1,6 @@
 <!-- Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/ -->
 
 <script setup lang="ts">
-import { useTouchDevice } from '#shared/composables/useTouchDevice.ts'
-
 import CommonButton from '#desktop/components/CommonButton/CommonButton.vue'
 import CommonLoader from '#desktop/components/CommonLoader/CommonLoader.vue'
 import { getKnowledgeBaseAnswerLink } from '#desktop/entities/knowledge-base/utils/knowledgeBaseAnswerLink.ts'
@@ -22,6 +20,7 @@ export interface Props {
   hasError: boolean
   errorDetail: string | null
   isTicketEditable: boolean
+  canInsertAnswer: boolean
   showRelevanceScore: boolean
 }
 
@@ -29,17 +28,16 @@ const props = defineProps<Props>()
 
 defineEmits<{
   retry: []
+  insert: [answerId: string]
 }>()
 
 const { ticketId } = useTicketInformation()
 
 const { linkAnswer } = useKnowledgeBaseAnswerLinks(ticketId.value, props.targetType)
-
-const { isTouchDevice } = useTouchDevice()
 </script>
 
 <template>
-  <CommonLabel tag="h3" size="small" class="text-stone-200! dark:text-neutral-500!">
+  <CommonLabel tag="h3" size="small" class="text-muted!">
     {{ $t('Suggested knowledge') }}
   </CommonLabel>
   <div v-if="hasError" class="flex flex-col items-end gap-3">
@@ -72,21 +70,26 @@ const { isTouchDevice } = useTouchDevice()
           <CommonLabel
             v-tooltip.supportive="$t('Relevance score')"
             size="small"
-            class="text-stone-200! dark:text-neutral-500!"
+            class="text-muted!"
           >
             {{ `${answer.score}%` }}
           </CommonLabel>
         </template>
-        <template v-if="isTicketEditable" #action="{ hasOpenedViaLongPress }">
+        <template v-if="isTicketEditable" #action>
           <CommonButton
-            v-tooltip="$t('Link knowledge base answer')"
-            :class="{
-              'opacity-100': hasOpenedViaLongPress,
-              'opacity-0 group-hover:opacity-100 focus-visible:opacity-100': !isTouchDevice,
-            }"
+            v-if="canInsertAnswer"
+            v-tooltip="$t('Insert knowledge base answer')"
             class="text-blue-800!"
             size="small"
-            variant="none"
+            variant="tertiary"
+            icon="editor-mention-knowledge-base"
+            @click="$emit('insert', answer.translation.id)"
+          />
+          <CommonButton
+            v-tooltip="$t('Link knowledge base answer')"
+            class="text-blue-800!"
+            size="small"
+            variant="tertiary"
             icon="plus-square-fill"
             @click="linkAnswer(answer.translation.id)"
           />
@@ -96,7 +99,7 @@ const { isTouchDevice } = useTouchDevice()
 
     <!-- Not "no answers found": the best matches may all be linked already, and those are listed
     above rather than suggested again. -->
-    <CommonLabel v-else size="small" class="text-stone-200! dark:text-neutral-500!">
+    <CommonLabel v-else size="small" class="text-muted!">
       {{ $t('No suggestions.') }}
     </CommonLabel>
 

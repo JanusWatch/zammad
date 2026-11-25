@@ -12,7 +12,8 @@ import useAppMaintenanceCheck from '#shared/composables/useAppMaintenanceCheck.t
 import useMetaTitle from '#shared/composables/useMetaTitle.ts'
 import { useOnEmitter } from '#shared/composables/useOnEmitter.ts'
 import usePushMessages from '#shared/composables/usePushMessages.ts'
-import { initializeDefaultObjectAttributes } from '#shared/entities/object-attributes/composables/useObjectAttributes.ts'
+import { useUnknownAddressDetection } from '#shared/composables/useUnknownAddressDetection.ts'
+import { initializeDefaultEntityAttributes } from '#shared/entities/core/attributes/composables/useEntityAttributes.ts'
 import { useApplicationStore } from '#shared/stores/application.ts'
 import { useAuthenticationStore } from '#shared/stores/authentication.ts'
 import { useLocaleStore } from '#shared/stores/locale.ts'
@@ -25,7 +26,10 @@ import {
 } from '#desktop/components/BetaUi/composables/useBetaUiFeedbackConsent.ts'
 import { initializeConfirmationDialog } from '#desktop/components/CommonConfirmationDialog/initializeConfirmationDialog.ts'
 import CommonImageViewer from '#desktop/components/CommonImageViewer/CommonImageViewer.vue'
+import { useBrowserNotificationPermissionRequest } from '#desktop/composables/useBrowserNotification.ts'
 import { useConnection } from '#desktop/composables/useConnection.ts'
+import { useCtiCallNotification } from '#desktop/entities/cti/composables/useCtiCallNotification.ts'
+import { useCtiCallPickup } from '#desktop/entities/cti/composables/useCtiCallPickup.ts'
 import { useTicketOverviewsStore } from '#desktop/entities/ticket/stores/ticketOverviews.ts'
 import { useUserCurrentTaskbarTabsStore } from '#desktop/entities/user/current/stores/taskbarTabs.ts'
 import { useTicketBulkUpdateStore } from '#desktop/entities/user/current/stores/ticketBulkUpdate.ts'
@@ -53,6 +57,7 @@ onBeforeMount(() => {
 })
 
 useAppMaintenanceCheck()
+useUnknownAddressDetection()
 usePushMessages()
 
 // Add a check for authenticated changes (e.g. login/logout in a other
@@ -110,7 +115,7 @@ watch(
 
     useUserCurrentTaskbarTabsStore()
     useTicketOverviewsStore()
-    initializeDefaultObjectAttributes()
+    initializeDefaultEntityAttributes()
     useAppUsageStore()
     useTicketBulkUpdateStore()
     useMobileDetection()
@@ -128,6 +133,14 @@ watch(
 )
 
 useConnection()
+
+// At the app level, so a picked-up call opens its view from any screen.
+useCtiCallPickup()
+
+// Also at the app level: the agent is on any screen, or none, when a call rings.
+useCtiCallNotification()
+
+useBrowserNotificationPermissionRequest()
 </script>
 
 <template>

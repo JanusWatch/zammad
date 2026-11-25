@@ -38,22 +38,26 @@ RSpec.describe Service::KnowledgeBase::Search do
     end
   end
 
-  def search_output(query = search_term, scope: nil)
+  def search_output(query = search_term, entity: :answer, scope: nil, for_user: user, **)
     described_class
-      .with_current_user(user)
-      .execute(query: query, knowledge_base: knowledge_base, scope: scope, locale: primary_locale)
+      .with_current_user(for_user)
+      .execute(query: query, knowledge_base: knowledge_base, entity: entity, scope: scope, locale: primary_locale, **)
   end
 
-  def search(query = search_term, scope: nil)
-    search_output(query, scope: scope).results
+  def search(query = search_term, entity: :answer, scope: nil, for_user: user, **)
+    search_output(query, entity: entity, scope: scope, for_user: for_user, **).results
   end
 
   def visibility_of(category)
-    search_output.category_visibility[category.id]
+    search_output(entity: :category).category_visibility[category.id]
   end
 
-  def result_for(answer)
-    search.find { |result| result.item == answer }
+  # Looked up under the kind the record is, so an example only has to name the record - one run
+  #   returns one kind of content.
+  def result_for(item)
+    entity = item.is_a?(KnowledgeBase::Category) ? :category : :answer
+
+    search(entity: entity).find { |result| result.item == item }
   end
 
   def highlighted(segments)
@@ -70,7 +74,7 @@ RSpec.describe Service::KnowledgeBase::Search do
         query:          query,
         knowledge_base: knowledge_base,
         locale:         primary_locale,
-        indexes:        [KnowledgeBase::Answer::Translation.name],
+        entity:         :answer,
         limit:          limit,
         enriched:       false,
       )
@@ -167,12 +171,30 @@ RSpec.describe Service::KnowledgeBase::Search do
       expect(search('')).to be_empty
     end
 
-    it 'finds answers and categories alike' do
-      expect(search.map(&:item)).to include(matching_answer, matching_category)
+    it 'finds nothing where Elasticsearch did not run the search' do
+      expect(search('laptop / email')).to be_empty
     end
 
-    it 'never returns the knowledge base node itself' do
-      expect(search.map { |result| result.item.class }).to all(be_in([KnowledgeBase::Answer, KnowledgeBase::Category]))
+    it 'raises where Elasticsearch did not run the search and the caller asks for it' do
+      expect { search('laptop / email', raise_on_failure: true) }.to raise_error(SearchIndexBackend::SearchFailedError)
+    end
+
+    it 'finds answers' do
+      expect(search.map(&:item)).to include(matching_answer)
+    end
+
+    it 'finds categories' do
+      expect(search(entity: :category).map(&:item)).to include(matching_category)
+    end
+
+    # The knowledge base node itself is not one of the searchable kinds at all, so no run can
+    #   return it - which is what ENTITY_MODELS leaves out.
+    it 'returns answers alone when asked for answers' do
+      expect(search.map(&:item)).to be_present.and(all(be_a(KnowledgeBase::Answer)))
+    end
+
+    it 'returns categories alone when asked for categories' do
+      expect(search(entity: :category).map(&:item)).to be_present.and(all(be_a(KnowledgeBase::Category)))
     end
 
     it 'marks the matched run of the title' do
@@ -187,12 +209,18 @@ RSpec.describe Service::KnowledgeBase::Search do
       expect(highlighted(result_for(body_only_answer).body_preview)).to eq(['ocarina'])
     end
 
-    # The index holds the texts HTML-escaped for the legacy consumers, which render the fragments as
-    #   markup; the segments are plain text, so `&amp;` must come back as `&` — and `&nbsp;`, which
-    #   the indexer emits for a non-breaking space, as that space.
+    # The segments are plain text, so these characters have to survive indexing as themselves.
     context 'with HTML special characters in the title' do
+      def title_of(answer, query)
+        search(query).find { |result| result.item == answer }&.title_preview&.map(&:text)&.join
+      end
+
+      # A body of its own: the factory's Lorem body may contain `amplus`, which `amp` matches as
+      #   the backend appends a wildcard to the query.
       let(:ampersand_answer) do
-        create(:knowledge_base_answer, :published, category: category, translation_attributes: { title: 'Ocarina & order' })
+        create(:knowledge_base_answer, :published, category: category, translation_attributes: { title: 'Ocarina & order' }).tap do |answer|
+          answer.translations.first.content.update!(body: 'Sheet music for both.')
+        end
       end
 
       let(:nbsp_answer) do
@@ -206,19 +234,20 @@ RSpec.describe Service::KnowledgeBase::Search do
       end
 
       it 'previews an ampersand unescaped' do
-        expect(result_for(ampersand_answer).title_preview.map(&:text).join).to eq('Ocarina & order')
+        expect(title_of(ampersand_answer, 'ocarina')).to eq('Ocarina & order')
+      end
+
+      # https://github.com/zammad/zammad/issues/6369
+      it 'previews an ampersand unescaped for a wildcard search' do
+        expect(title_of(ampersand_answer, '*')).to eq('Ocarina & order')
+      end
+
+      it 'does not find the answer by the entity name of its ampersand' do
+        expect(search('amp').map(&:item)).not_to include(ampersand_answer)
       end
 
       it 'previews a non-breaking space and an angle bracket unescaped' do
         expect(result_for(nbsp_answer).title_preview.map(&:text).join).to eq("Ocarina\u00A0<3")
-      end
-
-      # The escaping leaves an `amp` term in the index, which a query that matches every term marks
-      #   as a hit of its own - https://github.com/zammad/zammad/issues/6369
-      it 'previews an ampersand unescaped for a query that matches every term' do
-        result = search('*').find { |elem| elem.item == ampersand_answer }
-
-        expect(result.title_preview.map(&:text).join).to eq('Ocarina & order')
       end
     end
 
@@ -236,6 +265,69 @@ RSpec.describe Service::KnowledgeBase::Search do
 
     it 'reports where a category sits, not the category itself' do
       expect(result_for(matching_category).category_path).to eq([category])
+    end
+
+    # How many hits a kind has is what its tab badge reads, and each kind is searched on its own -
+    #   so the categories cannot be moved by how many answers the same term hit.
+    it 'finds each kind of content independently of the other' do
+      expect(search(entity: :category).size).to eq(1)
+    end
+
+    # The cap bounds one kind of content, because one run searches one index — a term with many
+    #   answer hits must not leave the categories reading zero.
+    context 'when the result cap is reached' do
+      before { stub_const('Service::KnowledgeBase::Search::MAX_RESULTS', 2) }
+
+      it 'caps the kind that was searched' do
+        expect(search.size).to eq(2)
+      end
+
+      it 'leaves the other kind its own full count' do
+        expect(search(entity: :category).size).to eq(1)
+      end
+    end
+
+    # Filtered by permission before anything is counted: a draft is a hit for an editor and not one
+    #   for a customer, and a tab badge has to say so.
+    describe 'permission filtering' do
+      let!(:draft_answer_hit) do
+        create(:knowledge_base_answer, :draft, category: category, translation_attributes: { title: 'Ocarina repairs' })
+      end
+      let!(:internal_answer_hit) do
+        create(:knowledge_base_answer, :internal, category: category, translation_attributes: { title: 'Ocarina rentals' })
+      end
+
+      before do
+        searchindex_model_reload([KnowledgeBase::Answer::Translation])
+      end
+
+      it 'finds answers of every publication state for an editor' do
+        expect(search(for_user: create(:admin)).map(&:item)).to include(matching_answer, internal_answer_hit, draft_answer_hit)
+      end
+
+      it 'finds internal answers but no drafts for a reader', :aggregate_failures do
+        items = search(for_user: create(:agent)).map(&:item)
+
+        expect(items).to include(matching_answer, internal_answer_hit)
+        expect(items).not_to include(draft_answer_hit)
+      end
+
+      it 'finds published answers only for a customer', :aggregate_failures do
+        items = search(for_user: create(:customer)).map(&:item)
+
+        expect(items).to include(matching_answer)
+        expect(items).not_to include(internal_answer_hit, draft_answer_hit)
+      end
+
+      it 'finds no drafts or archived answers for an editor either, where they are left out', :aggregate_failures do
+        archived_answer_hit = create(:knowledge_base_answer, :archived, category: category, translation_attributes: { title: 'Ocarina history' })
+        searchindex_model_reload([KnowledgeBase::Answer::Translation])
+
+        items = search(for_user: create(:admin), include_drafts_and_archived: false).map(&:item)
+
+        expect(items).to include(matching_answer, internal_answer_hit)
+        expect(items).not_to include(draft_answer_hit, archived_answer_hit)
+      end
     end
 
     # CategoryType#visibility renders the status icon of a result from this. It is batched here
@@ -275,6 +367,11 @@ RSpec.describe Service::KnowledgeBase::Search do
 
         expect(visibility_of(matching_category)).to eq(:draft)
       end
+
+      # An answer search has no category hits, so it needs none of it.
+      it 'is empty when answers were searched' do
+        expect(search_output.category_visibility).to be_empty
+      end
     end
 
     context 'when scoped to a category' do
@@ -296,8 +393,8 @@ RSpec.describe Service::KnowledgeBase::Search do
     end
 
     # Granular permissions make KnowledgeBase.access_for_user :granular for anyone with a flat
-    #   editor/reader permission, but this user has neither - #flavor has to fall back to :public
-    #   for them regardless, or they would be filtered through grants they were never given.
+    #   editor/reader permission, but this user has neither - they search as :public and find the
+    #   published content they can browse, not nothing.
     context 'with granular permissions in effect, for a user without any knowledge base permission' do
       # Not the :agent factory - its default Agent role grants knowledge_base.reader (see
       #   db/seeds/permissions.rb), which is exactly the flat permission this example excludes.
@@ -309,7 +406,11 @@ RSpec.describe Service::KnowledgeBase::Search do
       end
 
       it 'takes the public path' do
-        expect(KnowledgeBase.access_for_user(user)).to eq(:public)
+        allow(SearchKnowledgeBaseBackend).to receive(:new).and_call_original
+
+        search
+
+        expect(SearchKnowledgeBaseBackend).to have_received(:new).with(hash_including(flavor: :public))
       end
 
       it 'still finds published answers outside the granted category' do
@@ -327,6 +428,10 @@ RSpec.describe Service::KnowledgeBase::Search do
       expect(search.map(&:item)).to include(matching_answer)
     end
 
+    it 'still finds categories' do
+      expect(search(entity: :category).map(&:item)).to include(matching_category)
+    end
+
     it 'returns the plain title as a single unmarked segment' do
       expect(result_for(matching_answer).title_preview.map { |segment| [segment.text, segment.highlight] })
         .to eq([['Ocarina tuning', false]])
@@ -336,6 +441,15 @@ RSpec.describe Service::KnowledgeBase::Search do
       preview = result_for(body_only_answer).body_preview
 
       expect(preview.map(&:highlight)).to eq([false])
+    end
+
+    # The fallback lists the newest hits first, here the draft and the archived answer.
+    it 'leaves drafts and archived answers out where asked to, before it counts its hits' do
+      create(:knowledge_base_answer, :draft, category: category, translation_attributes: { title: 'Ocarina repairs' })
+      create(:knowledge_base_answer, :archived, category: category, translation_attributes: { title: 'Ocarina history' })
+
+      expect(search(for_user: create(:admin), include_drafts_and_archived: false, limit: 1).map(&:item))
+        .to contain_exactly(have_attributes(visibility: :published))
     end
 
     it_behaves_like 'an answers-only, unenriched search'

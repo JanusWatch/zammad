@@ -41,9 +41,10 @@ import {
 } from '../graphql/queries/userCurrentAvatarList.api.ts'
 import { UserCurrentAvatarUpdatesDocument } from '../graphql/subscriptions/userCurrentAvatarUpdates.api.ts'
 
-import type { ApolloCache, NormalizedCacheObject } from '@apollo/client/core'
+import type { ApolloCache } from '@apollo/client'
 
-const user = toRef(useSessionStore(), 'user')
+const session = useSessionStore()
+const user = toRef(session, 'user')
 
 const { breadcrumbItems } = useBreadcrumb()
 
@@ -95,7 +96,7 @@ const cropImageFlyout = useFlyout({
 })
 
 const modifyDefaultAvatarCache = (
-  cache: ApolloCache<NormalizedCacheObject>,
+  cache: ApolloCache,
   avatar: Avatar | undefined,
   newValue: boolean,
 ) => {
@@ -164,9 +165,7 @@ const storeAvatar = (image: ImageFileData) => {
 
   addAvatarMutation.send().then((data) => {
     if (data?.userCurrentAvatarAdd?.avatar) {
-      if (user.value) {
-        user.value.image = data.userCurrentAvatarAdd.avatar.imageHash
-      }
+      session.updateUser({ image: data.userCurrentAvatarAdd.avatar.imageHash })
 
       notify({
         id: 'avatar-upload-success',
@@ -345,10 +344,10 @@ const { tabs, activeTab } = usePersonalSettingTabs()
                   v-if="avatar.deletable"
                   v-tooltip="$t('Delete this avatar')"
                   :class="{ 'opacity-0 transition-opacity': !isTouchDevice }"
-                  class="absolute -inset-e-2 -top-1 text-white group-hover/avatar:opacity-100 focus:opacity-100"
+                  class="absolute -inset-e-2 -top-1 group-hover/avatar:opacity-100 focus:opacity-100"
                   icon="x-lg"
                   size="small"
-                  variant="remove"
+                  variant="tertiary"
                   @click.stop="confirmDeleteAvatar(avatar)"
                 />
               </div>

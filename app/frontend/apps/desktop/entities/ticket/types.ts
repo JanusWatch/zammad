@@ -2,8 +2,10 @@
 
 import type { FormRefParameter } from '#shared/components/Form/types.ts'
 import type { TicketById } from '#shared/entities/ticket/types.ts'
+import type { TicketArticleTranslation } from '#shared/entities/ticket-article/stores/types.ts'
 
 import type { MenuState } from '#desktop/pages/ticket/components/TicketDetailView/TicketDetailTopBar/types.ts'
+import type { TicketRelatedKnowledge } from '#desktop/pages/ticket/composables/useTicketRelatedKnowledge.ts'
 
 import type { ComputedRef, Reactive, Ref } from 'vue'
 
@@ -16,6 +18,8 @@ export interface TicketInformation {
   showTicketArticleReplyForm: () => void
   newTicketArticlePresent: Ref<boolean | undefined>
   highlightMenu: Reactive<MenuState>
+  articleTranslation: TicketArticleTranslation
+  relatedKnowledge: TicketRelatedKnowledge
 }
 
 export type BulkUpdateSyncResult = {
@@ -31,3 +35,10 @@ export type BulkUpdateAsyncResult = {
 }
 
 export type BulkUpdateResult = BulkUpdateSyncResult | BulkUpdateAsyncResult
+
+export interface SummaryConfig {
+  open_questions: boolean
+  upcoming_events: boolean
+  customer_sentiment: boolean
+  generate_on: string
+}

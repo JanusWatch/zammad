@@ -22,9 +22,47 @@ RSpec.describe KnowledgeBaseRichText do
     end
 
     it 'writes a placeholder href when the target translation is gone' do
-      result = described_class.resolve_answer_links(link(9999)) { |found| "/somewhere/#{found.answer_id}" }
+      result = described_class.resolve_answer_links(link(0)) { |found| "/somewhere/#{found.answer_id}" }
 
       expect(result).to include('href="#"')
+    end
+
+    it 'writes a placeholder href when the block returns nil' do
+      result = described_class.resolve_answer_links(link(translation.id)) { nil }
+
+      expect(result).to include('href="#"')
+    end
+
+    context 'when detaching the body' do
+      def resolve(target_id, &)
+        described_class.resolve_answer_links("<p>#{link(target_id)}</p>", detach: true, &)
+      end
+
+      it 'turns a resolved link into an ordinary one' do
+        expect(resolve(translation.id) { '/somewhere' }).to eq('<p><a href="/somewhere">See also</a></p>')
+      end
+
+      it 'replaces a link to a gone target by its content' do
+        expect(resolve(0) { '/somewhere' }).to eq('<p>See also</p>')
+      end
+
+      it 'replaces a link the block returns nil for by its content' do
+        expect(resolve(translation.id) { nil }).to eq('<p>See also</p>')
+      end
+
+      it 'keeps markup inside the link' do
+        input  = "<a data-target-type='knowledge-base-answer' data-target-id='0'><strong>See</strong> also</a>"
+        result = described_class.resolve_answer_links(input, detach: true) { '/somewhere' }
+
+        expect(result).to eq('<strong>See</strong> also')
+      end
+
+      it 'still resolves a link nested in an unwrapped one' do
+        input  = "<a data-target-type='knowledge-base-answer' data-target-id='0'><b>#{link(translation.id)}</b></a>"
+        result = described_class.resolve_answer_links(input, detach: true) { '/somewhere' }
+
+        expect(result).to eq('<b><a href="/somewhere">See also</a></b>')
+      end
     end
 
     it 'leaves links without a target marker alone' do
@@ -68,6 +106,53 @@ RSpec.describe KnowledgeBaseRichText do
     it 'renders nothing for an unrecognized provider' do
       marker = '( widget: video, provider: dailymotion, id: x )'
       expect(described_class.expand_video_widgets(marker)).to eq('')
+    end
+  end
+
+  describe '.link_video_widgets' do
+    it 'replaces a marker with a link to the video page' do
+      result = described_class.link_video_widgets('<p>( widget: video, provider: youtube, id: vTTzwJsHpU8 )</p>')
+      expect(result).to eq("<p><a href='https://www.youtube.com/watch?v=vTTzwJsHpU8'>https://www.youtube.com/watch?v=vTTzwJsHpU8</a></p>")
+    end
+
+    it 'links a self-hosted video on a whitelisted server' do
+      allow(Setting).to receive(:get).with('kb_self_hosted_video_servers')
+        .and_return([{ 'host' => 'demo.mediacms.io', 'name' => 'CMS' }])
+
+      marker = '( widget: video, provider: mediacms, host: demo.mediacms.io, id: hDHXkdwy0 )'
+      expect(described_class.link_video_widgets(marker))
+        .to include("href='https://demo.mediacms.io/view?m=hDHXkdwy0'")
+    end
+
+    it 'links multiple markers in the same input' do
+      input  = 'a ( widget: video, provider: youtube, id: aaa ) b ( widget: video, provider: vimeo, id: 111 ) c'
+      result = described_class.link_video_widgets(input)
+      expect(result)
+        .to include("href='https://www.youtube.com/watch?v=aaa'")
+        .and include("href='https://vimeo.com/111'")
+    end
+
+    it 'escapes an attribute breakout attempt' do
+      marker = "( widget: video, provider: youtube, id: a' onmouseover='alert(1) )"
+      expect(described_class.link_video_widgets(marker)).not_to include("' onmouseover='")
+    end
+
+    it 'tolerates a marker part without a key' do
+      expect(described_class.link_video_widgets('( widget: video, provider: youtube, id: abc, )'))
+        .to include("href='https://www.youtube.com/watch?v=abc'")
+    end
+
+    it 'removes a marker without an ID' do
+      expect(described_class.link_video_widgets('<p>( widget: video, provider: youtube )</p>')).to eq('<p></p>')
+    end
+
+    it 'removes a marker of an unrecognized provider' do
+      expect(described_class.link_video_widgets('<p>( widget: video, provider: dailymotion, id: x )</p>')).to eq('<p></p>')
+    end
+
+    it 'removes a marker of a self-hosted video on a server that is not whitelisted' do
+      marker = '( widget: video, provider: peertube, host: video.example.com, id: uuid-1 )'
+      expect(described_class.link_video_widgets(marker)).to eq('')
     end
   end
 

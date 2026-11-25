@@ -8,7 +8,7 @@ import { mockApplicationConfig } from '#tests/support/mock-applicationConfig.ts'
 import { mockGraphQLApi } from '#tests/support/mock-graphql-api.ts'
 import { nullableMock } from '#tests/support/utils.ts'
 
-import { ObjectManagerFrontendAttributesDocument } from '#shared/entities/object-attributes/graphql/queries/objectManagerFrontendAttributes.api.ts'
+import { ObjectManagerFrontendAttributesDocument } from '#shared/entities/core/attributes/graphql/queries/objectManagerFrontendAttributes.api.ts'
 import type { TicketArticle } from '#shared/entities/ticket/types.ts'
 import { EnumSecurityStateType } from '#shared/graphql/types.ts'
 import type { DeepPartial } from '#shared/types/utils.ts'
@@ -56,8 +56,8 @@ describe('visuals for metadata', () => {
       preferences: {
         links: [
           {
-            label: 'Twitter',
-            url: 'https://twitter.com/zammad',
+            name: 'Facebook',
+            url: 'https://www.facebook.com/zammad',
             target: '_blank',
           },
         ],
@@ -69,6 +69,7 @@ describe('visuals for metadata', () => {
         name: 'article',
         article,
         ticketInternalId: 2,
+        isTicketAgent: true,
       },
       router: true,
       store: true,
@@ -101,10 +102,10 @@ describe('visuals for metadata', () => {
     const links = getAllByRole(channel, 'link')
     expect(links).toHaveLength(3)
 
-    const [twitter, raw, attachment] = links
+    const [facebook, raw, attachment] = links
 
-    expect(twitter).toHaveTextContent('Twitter')
-    expect(twitter).toHaveAttribute('href', 'https://twitter.com/zammad')
+    expect(facebook).toHaveTextContent('Facebook')
+    expect(facebook).toHaveAttribute('href', 'https://www.facebook.com/zammad')
 
     expect(raw).toHaveTextContent('Raw')
     expect(raw).toHaveAttribute('href', '/api/ticket_article_plain/1')
@@ -116,6 +117,24 @@ describe('visuals for metadata', () => {
     )
 
     expect(view.queryByRole('region', { name: 'Security' })).not.toBeInTheDocument()
+  })
+
+  it('does not render the detected language in the customer view', () => {
+    const view = renderComponent(ArticleMetadataDialog, {
+      props: {
+        name: 'article',
+        article: nullableMock<TicketArticle>({
+          ...defaultArticles().firstArticles!.edges[0].node,
+          detectedLanguage: 'de',
+        }),
+        ticketInternalId: 2,
+        isTicketAgent: false,
+      },
+      router: true,
+      store: true,
+    })
+
+    expect(view.queryByRole('region', { name: 'Detected language' })).not.toBeInTheDocument()
   })
 })
 

@@ -2,8 +2,6 @@
 
 require 'rails_helper'
 
-require 'keycloak/admin'
-
 RSpec.describe 'SAML Authentication', authenticated_as: false, integration: true, integration_standalone: :saml, required_envs: %w[KEYCLOAK_BASE_URL KC_BOOTSTRAP_ADMIN_USERNAME KC_BOOTSTRAP_ADMIN_PASSWORD], type: :system do
   let(:zammad_base_url)              { "#{Capybara.app_host}:#{Capybara.current_session.server.port}" }
   let(:zammad_saml_metadata)         { "#{zammad_base_url}/auth/saml/metadata" }
@@ -58,7 +56,7 @@ RSpec.describe 'SAML Authentication', authenticated_as: false, integration: true
     expect(page).to have_text('Sign out')
   end
 
-  # TODO: Should be replaced with tests for the new desktop-view (or the test in general should be removed outside of selenium).
+  # TODO: Should be replaced with tests for the new desktop-view (or the test in general should be removed outside of browser tests).
   describe 'SP login and SP logout' do
     before do
       saml_configure_zammad(saml_base_url:, saml_realm_zammad_descriptor:, security:)
@@ -140,6 +138,9 @@ RSpec.describe 'SAML Authentication', authenticated_as: false, integration: true
 
       click_on 'John Doe'
       find('span', text: 'Sign out', class: 'pf-v5-c-menu__item-text').click
+
+      # Navigating away while the IDP still redirects to its login page aborts the navigation.
+      expect(page).to have_text('Sign in')
 
       visit '/'
       expect(page).to have_current_route('login')

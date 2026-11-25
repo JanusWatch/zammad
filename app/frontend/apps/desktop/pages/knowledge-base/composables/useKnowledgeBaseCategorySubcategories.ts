@@ -3,13 +3,17 @@
 import { computed, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import type { KnowledgeBaseCategoryPreInfoFragment } from '#shared/graphql/types.ts'
+import type {
+  KnowledgeBaseCategoryPolicyFragment,
+  KnowledgeBaseCategoryPreInfoFragment,
+} from '#shared/graphql/types.ts'
 import { redirectToError, ErrorRouteType } from '#shared/router/error.ts'
 import { getApolloClient } from '#shared/server/apollo/client.ts'
 import QueryHandler from '#shared/server/apollo/handler/QueryHandler.ts'
 import { ErrorStatusCodes, GraphQLErrorTypes } from '#shared/types/error.ts'
 
 import { useKnowledgeBaseContentUpdates } from '#desktop/entities/knowledge-base/composables/useKnowledgeBaseContentUpdates.ts'
+import { KnowledgeBaseCategoryPolicyFragmentDoc } from '#desktop/entities/knowledge-base/graphql/fragments/knowledgeBaseCategoryPolicy.api.ts'
 import { KnowledgeBaseCategoryPreInfoFragmentDoc } from '#desktop/entities/knowledge-base/graphql/fragments/knowledgeBaseCategoryPreInfo.api.ts'
 import { useKnowledgeBaseCategorySubcategoriesQuery } from '#desktop/entities/knowledge-base/graphql/queries/knowledgeBaseCategorySubcategories.api.ts'
 import { useKnowledgeBaseStore } from '#desktop/entities/knowledge-base/stores/knowledgeBase.ts'
@@ -106,6 +110,19 @@ export const useKnowledgeBaseCategorySubcategories = (
       : (content.value?.category?.breadcrumb ?? []),
   )
 
+  // What the user may do in the opened category, cached with it from the page that listed it —
+  //   the grid asks every category it lists for the whole policy set. Only the grid skeleton reads
+  //   it, to reserve the add card's cell; the controls themselves wait for `policy` below, so none
+  //   of them flashes into view on a cached permission and out again.
+  const cachedPolicy = computed(() => {
+    if (!categoryId?.value) return null
+
+    return getApolloClient().cache.readFragment<KnowledgeBaseCategoryPolicyFragment>({
+      id: `KnowledgeBaseCategory:${categoryId.value}`,
+      fragment: KnowledgeBaseCategoryPolicyFragmentDoc,
+    })?.policy
+  })
+
   // Next-level count of the opened category (from the cache), to size the grid skeleton while it
   //   loads. The answer listing's own `totalCount` cannot size its skeleton either: it arrives
   //   with the very query that skeleton is waiting for, which is what `directAnswerCount` below
@@ -155,11 +172,8 @@ export const useKnowledgeBaseCategorySubcategories = (
   //   a breadcrumb ancestor, or a displayed child (whose subtree counts and
   //   visibility may shift). Ancestors are in the category's breadcrumb, so a
   //   change deep in a child's subtree still lists that child.
-  // Caught, because QueryHandler.refetch rejects on failure and nothing awaits these: a ping
-  //   arriving while offline would otherwise raise an unhandled rejection. The handler itself
-  //   reports the failure (its `errorCallback` above), so there is nothing to do here.
   const refetchDisplayed = (args: { categoryId?: string; locale?: string }) =>
-    knowledgeBaseCategorySubcategories.refetch(args).catch(() => {})
+    knowledgeBaseCategorySubcategories.refetch(args)
 
   // Handed over by useKnowledgeBaseContentUpdates rather than taken from the store directly, so a
   //   view that is kept alive off screen does not refetch until it is looked at again.
@@ -200,6 +214,7 @@ export const useKnowledgeBaseCategorySubcategories = (
     loading,
     directSubcategoryCount,
     directAnswerCount,
+    cachedPolicy,
     visiblePublicly,
     translationMissing,
     deletable,

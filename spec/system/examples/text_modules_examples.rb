@@ -1,6 +1,10 @@
 # Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
+# `path:` and `ticket:` accept a lambda, evaluated in the example, so records are not looked up at file load.
 RSpec.shared_examples 'text modules' do |path:, ticket: nil|
+  let(:text_modules_path)   { path.is_a?(Proc) ? instance_exec(&path) : path }
+  let(:text_modules_ticket) { ticket.is_a?(Proc) ? instance_exec(&ticket) : ticket }
+
   describe 'basic examples', authenticated_as: :agent do
     let(:agent)                       { create(:agent, groups: [Group.find_by(name: 'Users'), group1, group2]) }
     let!(:agent_fixed_name)           { create(:agent, firstname: 'FFFF1', lastname: 'GGGG1', groups: [Group.find_by(name: 'Users')]) }
@@ -13,7 +17,7 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
 
     it 'shows when send ::' do
       refresh # workaround to get new created objects from db
-      visit path
+      visit text_modules_path
       within(:active_content) do
         set_tree_select_value('group_id', Group.first.name)
         find(:richtext).send_keys(':')
@@ -23,7 +27,7 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
     end
 
     it 'does not break after usage of Ctrl/Command+Backspace' do
-      visit path
+      visit text_modules_path
       within(:active_content) do
         find(:richtext).send_keys(':')
         find(:richtext).send_keys(':')
@@ -40,7 +44,7 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
     end
 
     it 'does not show when send :enter:' do
-      visit path
+      visit text_modules_path
       within(:active_content) do
         set_tree_select_value('group_id', Group.first.name)
         find(:richtext).send_keys(':')
@@ -52,7 +56,7 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
     end
 
     it 'does not break search on backspace' do
-      visit path
+      visit text_modules_path
       within(:active_content) do
         set_tree_select_value('group_id', Group.first.name)
         find(:richtext).send_keys('@@agen')
@@ -62,7 +66,7 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
     end
 
     it 'does delete empty mentions (issue #3636 / FF only)' do
-      visit path
+      visit text_modules_path
       within(:active_content) do
         set_tree_select_value('group_id', Group.first.name)
         find(:richtext).send_keys('@@FFFF1')
@@ -77,7 +81,7 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
     end
 
     it 'does delete empty mentions (issue #3636 / simulation)' do
-      visit path
+      visit text_modules_path
       within(:active_content) do
         set_tree_select_value('group_id', Group.first.name)
         find(:richtext).send_keys('@@FFFF1')
@@ -87,12 +91,12 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
         find(:richtext).send_keys('test')
         page.execute_script("$('a[data-mention-user-id]').first().html('<br>')")
         find(:richtext).send_keys(:backspace)
-        expect(find(:richtext).all('a[data-mention-user-id]', visible: :all).count).to eq(0)
+        expect(find(:richtext)).to have_no_css('a[data-mention-user-id]', visible: :all)
       end
     end
 
     it 'does not delete parts of the text on multiple mentions (issue #3717)' do
-      visit path
+      visit text_modules_path
       within(:active_content) do
         set_tree_select_value('group_id', Group.first.name)
         find(:richtext).send_keys('Testing Testy')
@@ -101,11 +105,8 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
         find(:richtext).send_keys(:enter)
         await_empty_ajax_queue
 
-        # Firefox 139+ has a bug that causes the leading space to be removed.
-        # Hopefully this will either get fixed in Firefox.
-        # Otherwise this editor will be deprecated soon anyway...
-        # The Playwright driver's faster typing triggers the same space loss in Chromium.
-        if %i[zammad_firefox zammad_playwright zammad_playwright_mobile].include?(Capybara.current_driver)
+        # The Playwright driver's fast typing causes the leading space to be removed in Chromium.
+        if %i[zammad_chromium zammad_chromium_mobile].include?(Capybara.current_driver)
           expect(find(:richtext).text).to include('Testing TestyFFFF1 GGGG1')
           next
         end
@@ -123,7 +124,7 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
     end
 
     it 'does not delete line breaks of text with mentions (issue #3717)' do
-      visit path
+      visit text_modules_path
       within(:active_content) do
         set_tree_select_value('group_id', Group.first.name)
         find(:richtext).send_keys('@@FFFF1')
@@ -146,7 +147,7 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
         #   upstream (capybara-playwright-driver#155, same root cause as the
         #   caret race in #set_text). Until then keep the core protection of
         #   issue #3717: the existing text stays intact and both mentions exist.
-        if %i[zammad_playwright zammad_playwright_mobile].include?(Capybara.current_driver)
+        if %i[zammad_chromium zammad_chromium_mobile].include?(Capybara.current_driver)
           expect(find(:richtext).text).to include('FFFF1 GGGG1 Testing Testy')
           expect(find(:richtext).all('a[data-mention-user-id]').count).to eq(2)
           next
@@ -171,7 +172,7 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
       end
 
       refresh # workaround to get changed settings from db
-      visit path
+      visit text_modules_path
       within(:active_content) do
         set_tree_select_value('group_id', group1.name)
         find(:richtext).send_keys('::')
@@ -193,7 +194,7 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
 
     it 'orders text modules by alphabet' do
       refresh # workaround to get changed settings from db
-      visit path
+      visit text_modules_path
 
       within(:active_content) do
         find(:richtext).send_keys('::')
@@ -205,7 +206,7 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
           "#{text_module_without_group2.name}\n#{text_module_without_group2.keywords}",
           "#{text_module_without_group1.name}\n#{text_module_without_group1.keywords}",
         ]
-        if path == 'ticket/create'
+        if text_modules_path == 'ticket/create'
           expected_order = [
             "#{text_module_group2.name}\n#{text_module_group2.keywords}",
             "#{text_module_group1.name}\n#{text_module_group1.keywords}",
@@ -239,7 +240,7 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
 
       context 'when ticket external field value is not set' do
         it 'inserts text module with placeholder' do
-          visit path
+          visit text_modules_path
           within(:active_content) do
             find(:richtext).send_keys('::ext')
             page.send_keys(:enter)
@@ -248,15 +249,15 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
         end
       end
 
-      if path.starts_with? '#ticket/zoom'
+      if ticket
         context 'when ticket external field value is set' do
           before do
-            ticket.reload[custom_attribute.name] = { value: 'aaa', label: 'AAA' }
-            ticket.save!
+            text_modules_ticket.reload[custom_attribute.name] = { value: 'aaa', label: 'AAA' }
+            text_modules_ticket.save!
           end
 
           it 'inserts text module with external value' do
-            visit path
+            visit text_modules_path
             within(:active_content) do
               find(:richtext).send_keys('::ext')
               page.send_keys(:enter)
@@ -275,8 +276,8 @@ RSpec.shared_examples 'text modules' do |path:, ticket: nil|
       end
 
       it 'does show group related text modules when the group is hidden' do
-        ticket&.update(group: group1)
-        visit path
+        text_modules_ticket&.update(group: group1)
+        visit text_modules_path
         within(:active_content) do
           expect(page).to have_css('[data-attribute-name=group_id].is-hidden', visible: :all)
           find(:richtext).send_keys(':')

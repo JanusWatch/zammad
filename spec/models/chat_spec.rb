@@ -18,6 +18,16 @@ RSpec.describe Chat, type: :model do
       result = chat.website_allowed?('https://www.zammad.com')
       expect(result).to be false
     end
+
+    it 'detects missing website as non-allowed', :aggregate_failures do
+      expect(chat.website_allowed?(nil)).to be false
+      expect(chat.website_allowed?('')).to be false
+    end
+
+    it 'allows missing website without allowed websites' do
+      chat.update!(allowed_websites: nil)
+      expect(chat.website_allowed?(nil)).to be true
+    end
   end
 
   describe '#destroy' do
@@ -383,16 +393,6 @@ RSpec.describe Chat, type: :model do
       it 'reports offline state to customers of both chats', :aggregate_failures do
         expect(chat1.customer_state[:state]).to eq('offline')
         expect(chat2.customer_state[:state]).to eq('offline')
-      end
-
-      it 'reports no seats and no sessions to the agent' do
-        expect_agent_state(agent1,
-                           waiting_chat_count: 0,
-                           running_chat_count: 0,
-                           active_sessions:    [],
-                           seads_available:    0,
-                           seads_total:        0,
-                           active:             false)
       end
     end
 

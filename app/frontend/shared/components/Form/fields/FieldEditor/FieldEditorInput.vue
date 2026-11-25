@@ -6,9 +6,11 @@ import { type Editor } from '@tiptap/vue-3'
 import { useEventListener } from '@vueuse/core'
 import { computed, onMounted, onUnmounted, ref, toRef, useTemplateRef, watch } from 'vue'
 
+import { getButtonGroup } from '#shared/components/EntityAttributes/attributes/AttributeRichtext/initializeRichtextButtons.ts'
 import useValue from '#shared/components/Form/composables/useValue.ts'
 import { useAttachments } from '#shared/components/Form/fields/FieldEditor/composables/useAttachments.ts'
 import { useSignatureHandling } from '#shared/components/Form/fields/FieldEditor/composables/useSignatureHandling.ts'
+import { EXTENSION_NAME as knowledgeBaseMentionExtensionName } from '#shared/components/Form/fields/FieldEditor/extensions/KnowledgeBaseSuggestion.ts'
 import { EXTENSION_NAME as userMentionExtensionName } from '#shared/components/Form/fields/FieldEditor/extensions/UserMention.ts'
 import {
   imageExtensionName,
@@ -18,6 +20,7 @@ import {
   getPlainExtensions,
   PlaceholderExtensionName,
 } from '#shared/components/Form/fields/FieldEditor/extensions.ts'
+import { forgetInlineImages } from '#shared/components/Form/fields/FieldEditor/features/image-handler/inlineImageUploads.ts'
 import FieldEditorFooter from '#shared/components/Form/fields/FieldEditor/FieldEditorFooter.vue'
 import type {
   EditorContentType,
@@ -30,7 +33,6 @@ import {
   getEditorComponents,
 } from '#shared/components/Form/initializeFieldEditor.ts'
 import type { FormFieldContext } from '#shared/components/Form/types/field.ts'
-import { getButtonGroup } from '#shared/components/ObjectAttributes/attributes/AttributeRichtext/initializeRichtextButtons.ts'
 import { useSessionStore } from '#shared/stores/session.ts'
 import { htmlCleanup } from '#shared/utils/htmlCleanup.ts'
 import testFlags from '#shared/utils/testFlags.ts'
@@ -150,6 +152,8 @@ const editor = useEditor({
   editorProps: {
     attributes: {
       role: 'textbox',
+      'aria-labelledby': `label-${props.context.id}`,
+      'aria-multiline': 'true',
       name: props.context.node.name,
       id: props.context.id,
       class: props.context.classes.input,
@@ -231,6 +235,8 @@ if (VITE_TEST_MODE) {
         editorProps: {
           attributes: {
             role: 'textbox',
+            'aria-labelledby': `label-${id}`,
+            'aria-multiline': 'true',
             name: props.context.node.name,
             id,
             class: props.context.classes.input,
@@ -295,10 +301,15 @@ const setEditorContent = (
   })
 }
 
+// tiptap creates the editor only on mount, a value written before is applied then.
+let contentWrittenBeforeMount: string | undefined
+
 // Set the new editor content, when the value was changed from outside (e.g. form schema update).
 const updateValueKey = props.context.node.on('input', ({ payload: newContent }) => {
-  // Early return when no editor exists, keep this in mind, when we have real initial value problems.
-  if (!editor.value) return
+  if (!editor.value) {
+    contentWrittenBeforeMount = newContent
+    return
+  }
 
   const currentContent = getEditorContent(editor.value, contentType.value)
 
@@ -326,9 +337,12 @@ const updateContentTypeKey = props.context.node.on(
   },
 )
 
+const resetKey = props.context.node.on('reset', () => forgetInlineImages(props.context.formId))
+
 onUnmounted(() => {
   props.context.node.off(updateValueKey)
   props.context.node.off(updateContentTypeKey)
+  props.context.node.off(resetKey)
 })
 
 const focusEditor = () => {
@@ -368,6 +382,14 @@ const editorCustomContext = {
   addSignature,
   removeSignature,
   focus: focusEditor,
+  // Set either way, to replace the queued variant the wrapper offers until the editor is loaded.
+  insertKnowledgeBaseAnswer: editorExtensions.value.some(
+    ({ name }) => name === knowledgeBaseMentionExtensionName,
+  )
+    ? (translationId: ID) => {
+        editor.value?.commands.insertKnowledgeBaseAnswer(translationId)
+      }
+    : undefined,
 }
 
 // eslint-disable-next-line vue/no-mutating-props
@@ -378,9 +400,21 @@ onMounted(() => {
   onLoad.forEach((fn) => fn(editorCustomContext))
   onLoad.length = 0
 
+  if (contentWrittenBeforeMount !== undefined) {
+    setEditorContent(contentWrittenBeforeMount, contentType.value, true)
+    contentWrittenBeforeMount = undefined
+    userHasEditedContent = false
+  }
+
   // The editor may mount after the article form is already set up (async import,
   //   late dialog rendering) - reconcile the signature it may have missed (#804).
   syncSignature(true)
+
+  editor.value?.on('inline-images-replaced', () => {
+    if (!editor.value) return
+
+    props.context.node.input(getEditorContent(editor.value, contentType.value))
+  })
 
   if (VITE_TEST_MODE) {
     testFlags.set(`${props.context.formId}.${props.context.node.name}.editor.ready`)

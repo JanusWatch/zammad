@@ -34,7 +34,8 @@ import { useTaskbarTabContext } from '#desktop/entities/user/current/composables
 import { useTaskbarTabDiscard } from '#desktop/entities/user/current/composables/useTaskbarTabDiscard.ts'
 import { useTaskbarTabStateUpdates } from '#desktop/entities/user/current/composables/useTaskbarTabStateUpdates.ts'
 
-import { useProvideTicketSidebar, useTicketSidebar } from '../../composables/useTicketSidebar.ts'
+import { useProvideTicketSidebar } from '../../composables/useProvideTicketSidebar.ts'
+import { useTicketSidebar } from '../../composables/useTicketSidebar.ts'
 import { TicketSidebarScreenType, type TicketSidebarContext } from '../../types/sidebar.ts'
 import TicketSidebar from '../TicketSidebar.vue'
 
@@ -110,7 +111,7 @@ const formSchema = defineFormSchema([
         isLayout: true,
         element: 'h1',
         attrs: {
-          class: 'py-2.5 text-center text-xl font-medium leading-snug text-black dark:text-white',
+          class: 'py-2.5 text-center text-xl font-medium leading-snug text-contrast',
           ariaCurrent: 'page',
         },
         children: '$values.title || $t($defaultTitle)',
@@ -163,7 +164,7 @@ const formSchema = defineFormSchema([
           },
           {
             screen: 'create_top',
-            object: EnumObjectManagerObjects.Ticket,
+            entity: EnumObjectManagerObjects.Ticket,
           },
           // Because of the current field screen settings in the backend
           // seed we need to add this manually.
@@ -186,7 +187,7 @@ const formSchema = defineFormSchema([
           {
             name: 'body',
             screen: 'create_top',
-            object: EnumObjectManagerObjects.TicketArticle,
+            entity: EnumObjectManagerObjects.TicketArticle,
             required: true,
             props: {
               meta: {
@@ -256,13 +257,13 @@ const formSchema = defineFormSchema([
         children: [
           {
             screen: 'create_middle',
-            object: EnumObjectManagerObjects.Ticket,
+            entity: EnumObjectManagerObjects.Ticket,
           },
         ],
       },
       {
         screen: 'create_bottom',
-        object: EnumObjectManagerObjects.Ticket,
+        entity: EnumObjectManagerObjects.Ticket,
       },
     ],
   },
@@ -311,9 +312,10 @@ const changedFields = reactive({
           onSuccess: applyNewlyCreatedCustomer,
         })
       },
-      // Ticket create accepts unknown customers — the typed-in email
-      // becomes a new customer user on submit.
+      // Ticket create accepts unknown customers — the typed-in email address
+      // or phone number becomes a new customer user on submit.
       allowUnknownEmail: true,
+      allowUnknownPhone: true,
     },
   },
 })
@@ -393,7 +395,7 @@ const submitCreateTicket = async (event: FormSubmitData<TicketFormData>) => {
         :handlers="[useTicketFormOrganizationHandler()]"
         :change-fields="changedFields"
         :form-updater-additional-params="formUpdaterAdditionalParams"
-        use-object-attributes
+        use-entity-attributes
         form-class="flex flex-col gap-3 min-w-xs"
         @submit="submitCreateTicket($event as FormSubmitData<TicketFormData>)"
       />
@@ -406,7 +408,8 @@ const submitCreateTicket = async (event: FormSubmitData<TicketFormData>) => {
         <CommonButton
           v-if="isDirty"
           size="large"
-          variant="danger"
+          variant="tertiary"
+          prefix-icon="trash3"
           :disabled="isDisabled"
           @click="discardChanges"
           >{{ $t('Discard changes') }}</CommonButton

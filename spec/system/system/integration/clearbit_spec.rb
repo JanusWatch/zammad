@@ -7,15 +7,25 @@ RSpec.describe 'Manage > Integration > Clearbit', type: :system do
   let(:source)      { 'source1' }
   let(:destination) { 'destination1' }
 
-  before do
-    visit 'system/integration/clearbit'
+  context 'when enabled with the switch' do
+    before { visit 'system/integration/clearbit' }
 
-    # enable clearbit
-    check 'setting-switch', allow_label_click: true
+    it 'stores the integration as enabled' do
+      expect(page).to have_unchecked_field('setting-switch', visible: :all)
+
+      check 'setting-switch', allow_label_click: true
+      wait_for_setting('clearbit_integration', true)
+    end
   end
 
   context 'for clearbit config' do
+    # Enabled in the backend: enabling it in the page makes the frontend re-fetch all settings,
+    #   and a re-fetch that reads before the config is saved overwrites the config in the frontend.
     before do
+      Setting.set('clearbit_integration', true)
+
+      visit 'system/integration/clearbit'
+
       within :active_content, '.main' do
         fill_in 'api_key',	with: api_key
 
@@ -27,6 +37,8 @@ RSpec.describe 'Manage > Integration > Clearbit', type: :system do
 
         click_on 'Save'
       end
+
+      wait_for_setting('clearbit_config', api_key, key: 'api_key')
     end
 
     shared_examples 'showing set config' do
@@ -61,20 +73,16 @@ RSpec.describe 'Manage > Integration > Clearbit', type: :system do
       it_behaves_like 'showing set config'
     end
 
-    context 'when disabled with changed config' do
+    context 'when disabled' do
       before do
-        # disable clearbit
         uncheck 'setting-switch', allow_label_click: true
+        wait_for_setting('clearbit_integration', false)
       end
-
-      let(:api_key) { '-empty-' }
 
       it_behaves_like 'showing set config'
 
-      it 'does not have the old api key' do
-        within :active_content, '.main' do
-          expect(page).to have_no_field('api_key', with: 'some_api_key')
-        end
+      it 'keeps the config' do
+        expect(Setting.get('clearbit_config')).to include('api_key' => api_key)
       end
     end
   end

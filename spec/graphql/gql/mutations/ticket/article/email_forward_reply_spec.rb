@@ -2,6 +2,7 @@
 
 require 'rails_helper'
 
+# The quoted header lines are covered by spec/services/service/ticket/article/quoted_header_spec.rb.
 RSpec.describe Gql::Mutations::Ticket::Article::EmailForwardReply, :aggregate_failures, type: :graphql do
   let(:article)  { create(:ticket_article, :inbound_email, :with_attachment, from: customer.email) }
   let(:agent)    { create(:agent, groups: [article.ticket.group]) }
@@ -37,42 +38,54 @@ RSpec.describe Gql::Mutations::Ticket::Article::EmailForwardReply, :aggregate_fa
   context 'when logged in as an agent', authenticated_as: :agent do
 
     context 'when quoting is enabled' do
+      it 'returns the quoted header lines and the cloned attachments' do
+        gql.execute(query, variables: variables)
 
-      let(:expected_response) do
-        {
+        expect(gql.result.data).to include(
           'quotableFrom' => "#{customer.fullname} <#{customer.email}>",
           'quotableTo'   => article.to,
           'quotableCc'   => nil,
           'attachments'  => [ { 'name' => article.attachments.first.filename } ],
-        }
-      end
-
-      it 'includes personal data' do
-        gql.execute(query, variables: variables)
-
-        expect(gql.result.data).to include(expected_response)
+        )
       end
     end
 
     context 'when quoting is disabled' do
-
       before do
         Setting.set('ui_ticket_zoom_article_email_full_quote_header', false)
       end
 
-      let(:expected_response) do
-        {
+      it 'returns the cloned attachments only' do
+        gql.execute(query, variables: variables)
+
+        expect(gql.result.data).to include(
           'quotableFrom' => nil,
           'quotableTo'   => nil,
           'quotableCc'   => nil,
           'attachments'  => [ { 'name' => article.attachments.first.filename } ],
-        }
+        )
       end
+    end
 
-      it 'does not include personal data' do
+    context 'when no form_id is given' do
+      let(:variables) { { articleId: gql.id(article) } }
+
+      it 'rejects the request' do
         gql.execute(query, variables: variables)
 
-        expect(gql.result.data).to include(expected_response)
+        expect(gql.result.error_message).to include('formId')
+      end
+    end
+
+    # A blank form_id skips the upload cache authorization - it must not clone
+    #   into a cache keyed by the empty string either.
+    context 'when the form_id is blank' do
+      let(:variables) { { articleId: gql.id(article), formId: '' } }
+
+      it 'skips the attachment cloning' do
+        gql.execute(query, variables: variables)
+
+        expect(gql.result.data).to include('attachments' => [])
       end
     end
 
@@ -101,7 +114,20 @@ RSpec.describe Gql::Mutations::Ticket::Article::EmailForwardReply, :aggregate_fa
       gql.execute(query, variables: variables)
     end
 
-    it_behaves_like 'graphql responds with error if unauthenticated'
+    it_behaves_like 'graphql responds with forbidden'
+  end
+
+  # The required ticket.agent permission must reject even the ticket's own
+  #   customer, who would pass the article visibility check.
+  context 'when logged in as the ticket customer', authenticated_as: :customer do
+    let(:article)  { create(:ticket_article, :inbound_email) }
+    let(:customer) { article.ticket.customer }
+
+    before do
+      gql.execute(query, variables: variables)
+    end
+
+    it_behaves_like 'graphql responds with forbidden'
   end
 
   context 'when not logged in' do
@@ -110,115 +136,5 @@ RSpec.describe Gql::Mutations::Ticket::Article::EmailForwardReply, :aggregate_fa
     end
 
     it_behaves_like 'graphql responds with error if unauthenticated'
-  end
-
-  describe '#quotableFrom', authenticated_as: :agent do
-    let(:expected_response) do
-      nil
-    end
-
-    context 'when origin_by is set' do
-      let(:user)    { create(:agent) }
-      let(:article) { create(:ticket_article, origin_by: user) }
-
-      let(:expected_response) do
-        user.fullname
-      end
-
-      it 'works as expected' do
-        gql.execute(query, variables: variables)
-        expect(gql.result.data[:quotableFrom]).to eq(expected_response)
-      end
-    end
-
-    context 'when created_by is set' do
-      let(:user) { create(:agent) }
-      let(:article) { create(:ticket_article, created_by: user) }
-
-      let(:expected_response) do
-        user.fullname
-      end
-
-      it 'works as expected' do
-        gql.execute(query, variables: variables)
-        expect(gql.result.data[:quotableFrom]).to eq(expected_response)
-      end
-    end
-  end
-
-  describe '#quotableTo', authenticated_as: :agent do
-    let(:expected_response) do
-      nil
-    end
-
-    context 'when inbound_email is set' do
-      let(:user) { create(:agent) }
-      let(:article) { create(:ticket_article, :inbound_email) }
-
-      let(:expected_response) do
-        article.to
-      end
-
-      it 'works as expected' do
-        gql.execute(query, variables: variables)
-        expect(gql.result.data[:quotableTo]).to eq(expected_response)
-      end
-    end
-
-    context 'when inbound_phone is set' do
-      let(:user) { create(:agent) }
-      let(:article) { create(:ticket_article, :inbound_phone) }
-
-      let(:expected_response) do
-        article.to
-      end
-
-      it 'works as expected' do
-        gql.execute(query, variables: variables)
-        expect(gql.result.data[:quotableTo]).to eq(expected_response)
-      end
-    end
-
-    context 'when outbound_phone is set' do
-      let(:user) { create(:customer) }
-      let(:article) { create(:ticket_article, :outbound_phone, ticket: create(:ticket, customer: user)) }
-
-      let(:expected_response) do
-        "#{user.fullname} <#{user.email}>"
-      end
-
-      it 'works as expected' do
-        gql.execute(query, variables: variables)
-        expect(gql.result.data[:quotableTo]).to eq(expected_response)
-      end
-    end
-
-    context 'when article has no to field set' do
-      let(:user)    { create(:customer) }
-      let(:article) { create(:ticket_article, :inbound_phone, to: nil) }
-
-      let(:expected_response) do
-        nil
-      end
-
-      it 'works as expected' do
-        gql.execute(query, variables: variables)
-        expect(gql.result.data[:quotableTo]).to eq(expected_response)
-      end
-    end
-  end
-
-  describe '#quotableCc', authenticated_as: :agent do
-    let(:user) { create(:customer) }
-    let(:article) { create(:ticket_article, cc: user.email) }
-
-    let(:expected_response) do
-      "#{user.fullname} <#{user.email}>"
-    end
-
-    it 'works as expected' do
-      gql.execute(query, variables: variables)
-      expect(gql.result.data[:quotableCc]).to eq(expected_response)
-    end
   end
 end

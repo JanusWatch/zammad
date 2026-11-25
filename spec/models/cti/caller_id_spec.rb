@@ -79,6 +79,36 @@ RSpec.describe Cti::CallerId do
     end
   end
 
+  describe '.stored_number_variants' do
+    it 'lists the stored forms of a default country number' do
+      expect(described_class.stored_number_variants('4930123456'))
+        .to eq(%w[4930123456 004930123456 030123456])
+    end
+
+    it 'leaves the national form out for another country' do
+      expect(described_class.stored_number_variants('43664123456'))
+        .to eq(%w[43664123456 0043664123456])
+    end
+
+    # What normalize_number folds into one caller id, the variants must cover by digits.
+    it 'covers the digits of every form a backend sends for the caller id' do
+      {
+        '4930123456'  => ['4930123456', '+49 30 123456', '0049 30 123456', '030 123456'],
+        '43664123456' => ['+43 664 123456', '0043664123456'],
+      }.each do |caller_id, stored_forms|
+        stored_forms.each do |stored|
+          expect(described_class.normalize_number(stored)).to eq(caller_id)
+          expect(described_class.stored_number_variants(caller_id)).to include(stored.gsub(%r{\D}, ''))
+        end
+      end
+    end
+
+    it 'is empty without digits' do
+      expect(described_class.stored_number_variants(nil)).to eq([])
+      expect(described_class.stored_number_variants('+ ')).to eq([])
+    end
+  end
+
   describe '.normalize_number' do
     it 'does not modify digit-only strings (starting with 1-9)' do
       expect(described_class.normalize_number('5754321')).to eq('5754321')
@@ -291,34 +321,67 @@ RSpec.describe Cti::CallerId do
 
       expect(described_class.where(object: 'Ticket', o_id: article.id, caller_id: '49309876543')).to exist
     end
+
+    context 'when a User record holds a phone number' do
+      let(:user) { create(:user, phone: '+49 30 609812345') }
+
+      it 'indexes the number as a known caller ID of the user' do
+        described_class.add(user)
+
+        expect(described_class.where(user_id: user.id).pluck(:caller_id, :level)).to eq([%w[4930609812345 known]])
+      end
+    end
+
+    # A user without an email address gets an auto-<uuid> login, and a UUID holds digit
+    #   runs which used to be indexed like numbers.
+    context 'when a User record holds digits in columns which are no phone numbers' do
+      let(:user) do
+        create(:user, :without_email, login:        'auto-4358116e-5280-4687-b71a-4a4b619bd42c',
+                                      image_source: 'https://example.com/avatars/2024092312345.png',
+                                      phone:        '+49 30 609812345')
+      end
+
+      it 'indexes the phone number alone' do
+        described_class.add(user)
+
+        expect(described_class.where(user_id: user.id).pluck(:caller_id)).to eq(['4930609812345'])
+      end
+    end
+
+    context 'when a User record holds a phone number in a free text column' do
+      let(:user) { create(:user, phone: '', note: 'Reachable at +49 30 609812345 in the morning.') }
+
+      it 'indexes the number' do
+        described_class.add(user)
+
+        expect(described_class.where(user_id: user.id).pluck(:caller_id)).to eq(['4930609812345'])
+      end
+    end
   end
 
-  describe 'callbacks' do
+  describe 'callbacks', :performs_jobs do
     subject!(:caller_id) { build(:cti_caller_id, caller_id: phone) }
 
     let(:phone) { '1234567890' }
 
     describe 'on creation' do
       it 'adopts CTI Logs from same number (via UpdateCtiLogsByCallerJob)' do
-        expect(UpdateCtiLogsByCallerJob).to receive(:perform_later)
-
-        caller_id.save
+        expect { caller_id.save }.to have_enqueued_job(UpdateCtiLogsByCallerJob)
       end
 
       it 'splits job into fg and bg (for more responsive UI – see #2057)' do
         expect(UpdateCtiLogsByCallerJob).to receive(:perform_now).with(phone, limit: 20)
-        expect(UpdateCtiLogsByCallerJob).to receive(:perform_later).with(phone, limit: 40, offset: 20)
 
-        caller_id.save
+        expect { caller_id.save }
+          .to have_enqueued_job(UpdateCtiLogsByCallerJob).with(phone, limit: 40, offset: 20)
       end
 
       it 'skips jobs on import_mode true' do
         Setting.set('import_mode', true)
 
         expect(UpdateCtiLogsByCallerJob).not_to receive(:perform_now)
-        expect(UpdateCtiLogsByCallerJob).not_to receive(:perform_later)
 
-        caller_id.save
+        expect { caller_id.save }.not_to have_enqueued_job(UpdateCtiLogsByCallerJob)
       end
     end
 
@@ -326,9 +389,7 @@ RSpec.describe Cti::CallerId do
       before { caller_id.save }
 
       it 'orphans CTI Logs from same number (via UpdateCtiLogsByCallerJob)' do
-        expect(UpdateCtiLogsByCallerJob).to receive(:perform_later).with(phone)
-
-        caller_id.destroy
+        expect { caller_id.destroy }.to have_enqueued_job(UpdateCtiLogsByCallerJob).with(phone)
       end
     end
   end

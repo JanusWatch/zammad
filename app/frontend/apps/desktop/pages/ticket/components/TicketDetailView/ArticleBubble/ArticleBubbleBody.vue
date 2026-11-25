@@ -1,17 +1,27 @@
 <!-- Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/ -->
 
 <script setup lang="ts">
-import { computed, toRef, watch, nextTick, onMounted } from 'vue'
+import { useTimeoutFn } from '@vueuse/core'
+import { computed, ref, toRef, watch, nextTick, onMounted, useTemplateRef } from 'vue'
 
 import { useArticleToggleMore } from '#shared/composables/useArticleToggleMore.ts'
 import { useHtmlInlineImages } from '#shared/composables/useHtmlInlineImages.ts'
 import { useHtmlLinks } from '#shared/composables/useHtmlLinks.ts'
 import { type ImageViewerFile } from '#shared/composables/useImageViewer.ts'
 import type { TicketArticle } from '#shared/entities/ticket/types.ts'
+import {
+  NO_RESULT_ERROR,
+  NO_TARGET_LOCALE_ERROR,
+} from '#shared/entities/ticket-article/composables/useTicketArticleTranslation.ts'
+import { useArticleTranslationStore } from '#shared/entities/ticket-article/stores/articleTranslation.ts'
+import { EnumTicketArticleTranslationSkipReason } from '#shared/graphql/types.ts'
 import { i18n } from '#shared/i18n.ts'
 import { textToHtml, ensureImagesKeepAspectRatio } from '#shared/utils/helpers.ts'
 
+import CommonAIFeedback from '#desktop/components/CommonAIFeedback/CommonAIFeedback.vue'
 import { useAnnouncer } from '#desktop/composables/accessibility/useAnnouncer.ts'
+import { useBubbleStyleGuide } from '#desktop/composables/useBubbleStyleGuide.ts'
+import { useTicketInformation } from '#desktop/pages/ticket/composables/useTicketInformation.ts'
 
 import { useArticleHighlights } from './useArticleHighlights/useArticleHighlights.ts'
 import { useArticleHighlightsA11y } from './useArticleHighlights/useArticleHighlightsA11y.ts'
@@ -30,23 +40,124 @@ const emit = defineEmits<{
   preview: [image: ImageViewerFile]
 }>()
 
-const { shownMore, bubbleElement, hasShowMore, toggleShowMore } = useArticleToggleMore()
+const { shownMore, bubbleElement, hasShowMore, toggleShowMore, recalculateHeight } =
+  useArticleToggleMore()
 
-const bodyClasses = computed(() =>
-  props.position === 'right'
-    ? ['dark:bg-stone-500', 'bg-blue-100', 'Content--customer']
-    : ['dark:bg-gray-400', 'bg-white', 'Content--agent'],
+const { articleTranslation } = useTicketInformation()
+
+const translationStore = useArticleTranslationStore()
+
+const translation = computed(() => articleTranslation.translationFor(props.article.id))
+
+// A finished translation; an empty article gets none and keeps its original.
+const displayedTranslation = computed(() =>
+  translation.value?.status === 'done' && translation.value.translated ? translation.value : null,
 )
 
+// Only the agent's own exclusions are explained: an article already in the target language is not.
+const isSkippedByPreference = computed(
+  () =>
+    translation.value?.status === 'done' &&
+    translation.value.skipReason === EnumTicketArticleTranslationSkipReason.ExcludedLanguage,
+)
+
+const isAiTranslation = computed(() => displayedTranslation.value?.backend === 'ai')
+
+const pendingTranslation = computed(() =>
+  translation.value?.status === 'pending' ? translation.value : null,
+)
+
+// A regeneration keeps the current translation on screen, and waits the same way.
+const isTranslationInProgress = computed(
+  () => !!pendingTranslation.value || !!displayedTranslation.value?.regenerating,
+)
+
+// Shown only for a translation that takes a while, so a fast answer never flashes, and kept until
+// it resolves, so a borderline one does not flicker.
+const TRANSLATION_PROGRESS_DELAY = 500
+
+const showsTranslationProgress = ref(false)
+
+const { start: startTranslationProgress, stop: stopTranslationProgress } = useTimeoutFn(
+  () => {
+    showsTranslationProgress.value = true
+  },
+  TRANSLATION_PROGRESS_DELAY,
+  { immediate: false },
+)
+
+watch(
+  isTranslationInProgress,
+  (inProgress) => {
+    if (inProgress) {
+      if (!showsTranslationProgress.value) startTranslationProgress()
+      return
+    }
+
+    stopTranslationProgress()
+    showsTranslationProgress.value = false
+  },
+  { immediate: true },
+)
+
+// Unknown until the server answered the request; the provider is never named, only drawn.
+const isAiTranslationProgress = computed(
+  () => (pendingTranslation.value ?? displayedTranslation.value)?.backend === 'ai',
+)
+
+const translationAttribution = computed(() => {
+  if (!displayedTranslation.value) return ''
+
+  return isAiTranslation.value
+    ? __('Translated by AI, some formatting may be lost.')
+    : __('Machine-translated, some formatting may be lost.')
+})
+
+const translationAnalytics = computed(() => displayedTranslation.value?.analytics)
+
+const isTranslationFailed = computed(() => translation.value?.status === 'error')
+
+// The server's reason is for the administrator, not for the agent reading the ticket; the client's
+// own reasons are written for the agent.
+const translationFailureReason = computed(() => {
+  if (translation.value?.status !== 'error') return ''
+
+  const { error } = translation.value
+
+  return error === NO_TARGET_LOCALE_ERROR || error === NO_RESULT_ERROR
+    ? error
+    : __('Failed to translate article content.')
+})
+
+const translationFeedback = useTemplateRef('translation-feedback')
+
+const isTranslationFeedbackCommenting = computed(
+  () => !!translationFeedback.value?.showCommentField,
+)
+
+const translationDirection = computed(() =>
+  displayedTranslation.value ? translationStore.targetLocaleData?.dir?.toLowerCase() : undefined,
+)
+
+const { articleBodyClasses: bodyClasses } = useBubbleStyleGuide(computed(() => props.position))
+
 const body = computed(() => {
-  if (props.article.bodyRenderingError) {
-    return textToHtml(i18n.t(props.article.bodyWithUrls))
+  // The translation comes in the format of the original, so it takes the same path.
+  const content = displayedTranslation.value?.content ?? props.article.bodyWithUrls
+
+  if (props.article.bodyRenderingError && !displayedTranslation.value) {
+    return textToHtml(i18n.t(content))
   }
   if (props.article.contentType !== 'text/html') {
-    return textToHtml(props.article.bodyWithUrls)
+    return textToHtml(content)
   }
-  return ensureImagesKeepAspectRatio(props.article.bodyWithUrls)
+  return ensureImagesKeepAspectRatio(content)
 })
+
+// Highlights are offsets into the original text and mean nothing in a translation.
+const highlightedTexts = computed(() =>
+  displayedTranslation.value ? undefined : (props.article.highlightedTexts ?? undefined),
+)
 
 const showAuthorInformation = computed(() => {
   const author = props.article.author.fullname // `-` => system message
@@ -59,15 +170,11 @@ const { populateInlineImages } = useHtmlInlineImages(toRef(props, 'inlineImages'
   emit('preview', props.inlineImages[index]),
 )
 
-useArticleHighlights(
-  bubbleElement,
-  computed(() => props.article.highlightedTexts ?? undefined),
-  body,
-)
+useArticleHighlights(bubbleElement, highlightedTexts, body)
 
 const { descriptionId, description } = useArticleHighlightsA11y(
   bubbleElement,
-  computed(() => props.article.highlightedTexts ?? undefined),
+  highlightedTexts,
   body,
   computed(() => props.article.internalId),
 )
@@ -76,25 +183,38 @@ const { announce } = useAnnouncer()
 
 useArticleHighlightsSelection(
   bubbleElement,
-  computed(() => props.article.highlightedTexts ?? undefined),
+  highlightedTexts,
   computed(() => props.article.id),
   announce,
+  computed(() => !displayedTranslation.value),
 )
 
 const toggleShowMoreAndEmit = () => {
   toggleShowMore()
 }
 
-watch(
-  () => body,
-  async () => {
-    await nextTick()
-    if (bubbleElement.value) {
-      setupLinksHandlers(bubbleElement.value)
-      populateInlineImages(bubbleElement.value)
-    }
-  },
-)
+// A swapped body brings its own links and images, and a different height to collapse to.
+watch(body, async () => {
+  // Pinned at its current height until measured, so a longer body never shows at full size first.
+  //   Without the transition: it would otherwise animate down from the new content's full height.
+  // Not in a hidden tab: detached from the document, the element has no height to pin.
+  const element = bubbleElement.value
+  if (element?.isConnected && !element.style.height) {
+    element.style.transitionProperty = 'none'
+    element.style.height = `${element.clientHeight}px`
+  }
+
+  await nextTick()
+  if (element) {
+    void element.offsetHeight // applies the pin before the transition is back
+    element.style.transitionProperty = ''
+  }
+  if (bubbleElement.value) {
+    setupLinksHandlers(bubbleElement.value)
+    populateInlineImages(bubbleElement.value)
+    recalculateHeight()
+  }
+})
 
 onMounted(() => {
   if (bubbleElement.value) {
@@ -117,7 +237,7 @@ onMounted(() => {
   >
     <div
       v-if="showAuthorInformation"
-      class="absolute top-3 flex w-full px-3 ltr:left-0 rtl:right-0 print:hidden"
+      class="absolute inset-s-0 top-3 flex w-full px-3 print:hidden"
       aria-describedby="author-name-and-creation-date"
     >
       <p id="author-name-and-creation-date" class="sr-only">
@@ -128,16 +248,14 @@ onMounted(() => {
         {{ article.author.fullname }}
       </CommonLabel>
 
-      <CommonDateTime
-        class="shrink-0 text-xs ltr:ml-auto rtl:mr-auto"
-        :date-time="article.createdAt"
-      />
+      <CommonDateTime class="ms-auto shrink-0 text-xs" :date-time="article.createdAt" />
     </div>
 
     <div
       ref="bubbleElement"
       data-test-id="article-content"
       class="overflow-hidden text-sm transition-[height] duration-200 print:h-auto! print:overflow-visible"
+      :dir="translationDirection"
     >
       <!--    Never drop this inner-article-body class used for Highlight feature-->
       <!--    eslint-disable vue/no-v-html-->
@@ -154,17 +272,108 @@ onMounted(() => {
         BubbleGradient: !shownMore,
       }"
     />
-    <CommonLink
-      v-if="hasShowMore"
-      class="mb-1 inline-block! outline-transparent! hover:underline! focus-visible:outline-blue-800! print:hidden!"
-      role="button"
-      link="#"
-      size="medium"
-      @click.prevent="toggleShowMoreAndEmit"
-      @keydown.enter.prevent="toggleShowMoreAndEmit"
+    <!-- Present before it has anything to say, so screen readers announce the change. -->
+    <span class="sr-only" role="status" data-test-id="article-translation-status">
+      {{ showsTranslationProgress ? $t('Translation in progress…') : '' }}
+    </span>
+    <div
+      v-if="
+        hasShowMore ||
+        displayedTranslation ||
+        showsTranslationProgress ||
+        isTranslationFailed ||
+        isSkippedByPreference
+      "
+      class="flex min-h-9 flex-wrap items-center gap-1 py-1 print:hidden"
+      data-test-id="article-body-toolbar"
     >
-      {{ shownMore ? $t('See less') : $t('See more') }}
-    </CommonLink>
+      <CommonLink
+        v-if="hasShowMore"
+        class="inline-block! outline-transparent! hover:underline! focus-visible:outline-blue-800!"
+        role="button"
+        link="#"
+        size="medium"
+        @click.prevent="toggleShowMoreAndEmit"
+        @keydown.enter.prevent="toggleShowMoreAndEmit"
+      >
+        {{ shownMore ? $t('See less') : $t('See more') }}
+      </CommonLink>
+
+      <!-- Named to assistive technology by the status region above. -->
+      <div
+        v-if="showsTranslationProgress"
+        class="ms-auto flex flex-col gap-0.5"
+        aria-hidden="true"
+        data-test-id="article-translation-progress"
+      >
+        <CommonLabel class="text-muted!" size="xs" tag="p" prefix-icon="translate">
+          {{ $t('Translation in progress…') }}
+        </CommonLabel>
+        <span
+          class="translation-stripe motion-reduce:animate-none"
+          :class="{ 'translation-stripe-machine': !isAiTranslationProgress }"
+          data-test-id="article-translation-progress-stripe"
+        />
+      </div>
+
+      <CommonAlert
+        v-else-if="isTranslationFailed"
+        variant="danger"
+        class="ms-auto"
+        data-test-id="article-translation-error"
+      >
+        {{ $t(translationFailureReason) }}
+        {{ $t('Please contact your administrator.') }}
+      </CommonAlert>
+
+      <CommonLabel
+        v-else-if="displayedTranslation"
+        class="ms-auto text-muted!"
+        size="xs"
+        tag="p"
+        prefix-icon="translate"
+        data-test-id="article-translation-attribution"
+      >
+        {{ $t(translationAttribution) }}
+      </CommonLabel>
+
+      <CommonLabel
+        v-else-if="isSkippedByPreference"
+        class="ms-auto text-stone-200! dark:text-neutral-500!"
+        size="xs"
+        tag="p"
+        prefix-icon="translate"
+        data-test-id="article-translation-skipped"
+      >
+        {{ $t('Not translated due to your preferences.') }}
+      </CommonLabel>
+
+      <!-- A failed translation has nothing to rate; asking again is its way to recover. -->
+      <CommonAIFeedback
+        v-if="(translationAnalytics?.run?.id || isTranslationFailed) && !showsTranslationProgress"
+        ref="translation-feedback"
+        :class="{ 'w-full': isTranslationFeedbackCommenting }"
+        :analytics-meta="translationAnalytics ?? {}"
+        no-usage-tracking
+        :no-rating="isTranslationFailed"
+        regenerate-variant="neutral"
+        data-test-id="article-translation-feedback"
+        :no-ai-based="!isAiTranslation"
+        :regenerating="displayedTranslation?.regenerating"
+        @rated="articleTranslation.markTranslationRated(article.id)"
+        @regenerate="
+          isTranslationFailed
+            ? articleTranslation.showTranslation(article.id)
+            : articleTranslation.regenerateTranslation(article.id)
+        "
+      >
+        <template #success>
+          <CommonLabel class="flex! text-muted!" size="xs">
+            {{ $t('Thank you for your feedback.') }}
+          </CommonLabel>
+        </template>
+      </CommonAIFeedback>
+    </div>
   </article>
 </template>
 

@@ -25,16 +25,18 @@ RSpec.describe Cti::Log do
       end
     end
 
-    context 'when over 60 Log records exist' do
+    context 'when more Log records than the view limit exist' do
       subject!(:cti_logs) do
-        61.times.map do |_i| # rubocop:disable Performance/TimesMap
+        4.times.map do |_i| # rubocop:disable Performance/TimesMap
           travel 1.second
           create(:'cti/log')
         end
       end
 
-      it 'returns the 60 latest ones in the :list key' do
-        expect(described_class.log(user)[:list]).to match_array(cti_logs.last(60))
+      before { allow(described_class).to receive(:view_limit).and_return(3) }
+
+      it 'returns the latest ones up to the view limit in the :list key' do
+        expect(described_class.log(user)[:list]).to match_array(cti_logs.last(3))
       end
     end
 
@@ -71,9 +73,51 @@ RSpec.describe Cti::Log do
 
   end
 
+  describe '.unhandled' do
+    it 'lists the calls not marked as done' do
+      unhandled = create(:cti_log, :inbound, :not_reached)
+      create(:cti_log, :inbound, :handled, :done)
+
+      expect(described_class.unhandled).to contain_exactly(unhandled)
+    end
+  end
+
+  describe '.ringing' do
+    it 'lists the inbound calls still ringing that are not marked as done' do
+      ringing = create(:cti_log, :inbound, :ringing)
+      create(:cti_log, :inbound, :ringing, :done)
+      create(:cti_log, :inbound, :not_reached)
+      create(:cti_log, :outbound, :ringing)
+
+      expect(described_class.ringing).to contain_exactly(ringing)
+    end
+  end
+
+  describe '.within_view_limit' do
+    it 'keeps the newest entries up to the view limit', :aggregate_failures do
+      oldest = travel_to(1.minute.ago) { create(:cti_log) }
+      create_list(:cti_log, described_class.view_limit)
+
+      expect(described_class.within_view_limit.count).to eq(described_class.view_limit)
+      expect(described_class.within_view_limit).not_to include(oldest)
+    end
+
+    # Like the old caller log, which filters by the user's queues first and limits after.
+    it 'applies the window within the scope it is chained to' do
+      own_queue_log = travel_to(1.minute.ago) { create(:cti_log, queue: 'queue1') }
+      create_list(:cti_log, described_class.view_limit, queue: 'queue2')
+
+      expect(described_class.where(queue: 'queue1').within_view_limit).to contain_exactly(own_queue_log)
+    end
+  end
+
   describe '.push_caller_list_update?' do
-    let!(:existing_logs) { create_list(:'cti/log', 60) }
     let(:log) { create(:'cti/log') }
+
+    before do
+      allow(described_class).to receive(:view_limit).and_return(3)
+      create_list(:'cti/log', 3)
+    end
 
     context 'when given log is older than existing logs' do
       before { travel(-10.seconds) }
@@ -88,6 +132,132 @@ RSpec.describe Cti::Log do
 
       it 'return true' do
         expect(described_class.push_caller_list_update?(log)).to be true
+      end
+    end
+  end
+
+  describe 'subscription triggers' do
+    let(:agent)       { create(:agent) }
+    let(:other_agent) { create(:agent) }
+
+    before do
+      agent
+      other_agent
+      allow(Gql::Subscriptions::Cti::LogUpdates).to receive(:trigger_after_create)
+      allow(Gql::Subscriptions::Cti::LogUpdates).to receive(:trigger_after_update)
+      allow(Gql::Subscriptions::Cti::LogUpdates).to receive(:trigger_after_destroy)
+      allow(Gql::Subscriptions::Cti::SidebarUpdates).to receive(:trigger_for)
+    end
+
+    it 'announces a new call to every user with cti.agent', :aggregate_failures do
+      log = create(:'cti/log')
+
+      expect(Gql::Subscriptions::Cti::LogUpdates).to have_received(:trigger_after_create).with(log, agent)
+      expect(Gql::Subscriptions::Cti::LogUpdates).to have_received(:trigger_after_create).with(log, other_agent)
+    end
+
+    it 'triggers the sidebar subscription for the same users', :aggregate_failures do
+      create(:'cti/log')
+
+      expect(Gql::Subscriptions::Cti::SidebarUpdates).to have_received(:trigger_for).with(agent)
+      expect(Gql::Subscriptions::Cti::SidebarUpdates).to have_received(:trigger_for).with(other_agent)
+    end
+
+    it 'does not announce a call to a user without cti.agent' do
+      customer = create(:customer)
+
+      log = create(:'cti/log')
+
+      expect(Gql::Subscriptions::Cti::LogUpdates).not_to have_received(:trigger_after_create).with(log, customer)
+    end
+
+    it 'announces a changed call as an update', :aggregate_failures do
+      log = create(:'cti/log')
+
+      log.update!(state: 'answer')
+
+      expect(Gql::Subscriptions::Cti::LogUpdates).to have_received(:trigger_after_update).with(log, agent)
+      expect(Gql::Subscriptions::Cti::SidebarUpdates).to have_received(:trigger_for).with(agent).twice
+    end
+
+    it 'announces a destroyed call as a removal to the users who saw it', :aggregate_failures do
+      log = create(:'cti/log')
+
+      log.destroy!
+
+      expect(Gql::Subscriptions::Cti::LogUpdates).to have_received(:trigger_after_destroy).with(log, agent)
+      expect(Gql::Subscriptions::Cti::LogUpdates).to have_received(:trigger_after_destroy).with(log, other_agent)
+      expect(Gql::Subscriptions::Cti::SidebarUpdates).to have_received(:trigger_for).with(agent).twice
+    end
+
+    def cti_log_query_count
+      queries = 0
+
+      subscriber = ActiveSupport::Notifications.subscribe('sql.active_record') do |*, payload|
+        next if payload[:cached] || payload[:name] == 'SCHEMA'
+
+        queries += 1 if payload[:sql].include?('"cti_logs"')
+      end
+
+      yield
+
+      queries
+    ensure
+      ActiveSupport::Notifications.unsubscribe(subscriber)
+    end
+
+    # A call saves several times, and every save asks every agent whether their caller log carries
+    #   it. Asked through the list scope, that is a query per agent inside the CTI request.
+    it 'decides who is notified without a query per agent' do
+      expect { create_list(:agent, 3) }.not_to change { cti_log_query_count { create(:'cti/log') } }
+    end
+
+    # push_caller_list_update skips this case; the new caller log has no view_limit.
+    context 'when the record is older than the newest view_limit entries' do
+      before { create_list(:'cti/log', described_class.view_limit) }
+
+      it 'announces the call anyway' do
+        log = travel_to(10.seconds.ago) { create(:'cti/log') }
+
+        expect(Gql::Subscriptions::Cti::LogUpdates).to have_received(:trigger_after_create).with(log, agent)
+      end
+    end
+
+    context 'when a notify map is defined' do
+      before do
+        cti_config = Setting.get('cti_config')
+        cti_config[:notify_map] = [ { queue: 'queue4', user_ids: [agent.id.to_s] } ]
+        Setting.set('cti_config', cti_config)
+      end
+
+      it 'announces the call only to the agents of the queue', :aggregate_failures do
+        log = create(:'cti/log', queue: 'queue4')
+
+        expect(Gql::Subscriptions::Cti::LogUpdates).to have_received(:trigger_after_create).with(log, agent)
+        expect(Gql::Subscriptions::Cti::LogUpdates).not_to have_received(:trigger_after_create).with(log, other_agent)
+      end
+
+      it 'triggers the sidebar subscription only for the agents of the queue', :aggregate_failures do
+        create(:'cti/log', queue: 'queue4')
+
+        expect(Gql::Subscriptions::Cti::SidebarUpdates).to have_received(:trigger_for).with(agent)
+        expect(Gql::Subscriptions::Cti::SidebarUpdates).not_to have_received(:trigger_for).with(other_agent)
+      end
+
+      it 'announces the removal only to the agents of the queue', :aggregate_failures do
+        log = create(:'cti/log', queue: 'queue4')
+
+        log.destroy!
+
+        expect(Gql::Subscriptions::Cti::LogUpdates).to have_received(:trigger_after_destroy).with(log, agent)
+        expect(Gql::Subscriptions::Cti::LogUpdates).not_to have_received(:trigger_after_destroy).with(log, other_agent)
+      end
+
+      it 'triggers the subscriptions for nobody outside their queues', :aggregate_failures do
+        create(:'cti/log', queue: 'queue0')
+
+        expect(Gql::Subscriptions::Cti::LogUpdates).not_to have_received(:trigger_after_create)
+        expect(Gql::Subscriptions::Cti::SidebarUpdates).not_to have_received(:trigger_for)
       end
     end
   end
@@ -251,6 +421,49 @@ RSpec.describe Cti::Log do
       end
     end
 
+    context 'with the timing of a whole call' do
+      let(:event) { 'newCall' }
+
+      def process(event, **extra)
+        described_class.process(attributes.merge('event' => event, **extra))
+      end
+
+      it 'records waiting and talking time of an answered call', :aggregate_failures do
+        freeze_time
+        process('newCall')
+        travel 2.seconds
+        process('answer')
+
+        expect(described_class.last).to have_attributes(start_at: Time.zone.now, duration_waiting_time: 2, end_at: nil, duration_talking_time: nil)
+
+        travel 3.seconds
+        process('hangup', 'cause' => 'normalClearing')
+
+        expect(described_class.last).to have_attributes(end_at: Time.zone.now, duration_waiting_time: 2, duration_talking_time: 3, comment: 'normalClearing')
+      end
+
+      it 'records only the waiting time of an unanswered call', :aggregate_failures do
+        freeze_time
+        process('newCall')
+        travel 2.seconds
+        process('hangup', 'cause' => 'cancel')
+
+        expect(described_class.last).to have_attributes(start_at: nil, end_at: Time.zone.now, duration_waiting_time: 2, duration_talking_time: nil)
+      end
+
+      it 'marks an outbound call as done right away' do
+        process('newCall', 'direction' => 'out')
+
+        expect(described_class.last).to have_attributes(done: true, queue: '49123456', from_comment: 'user 1')
+      end
+
+      it 'joins a list of users into one comment' do
+        process('newCall', 'user' => ['user 1', 'user 2'])
+
+        expect(described_class.last.to_comment).to eq('user 1, user 2')
+      end
+    end
+
     context 'for preferences.from verification', performs_jobs: true do
       subject(:log) do
         described_class.process(attributes)
@@ -341,24 +554,25 @@ RSpec.describe Cti::Log do
 
   describe 'Callbacks -' do
     describe 'Updating agent sessions:' do
-      before { allow(Sessions).to receive(:send_to).with(any_args) }
+      let!(:agent) { create(:agent) }
+
+      before do
+        allow(described_class).to receive(:view_limit).and_return(3)
+        allow(Sessions).to receive(:send_to)
+      end
 
       context 'on creation' do
         it 'pushes "cti_list_push" event' do
-          User.with_permissions('cti.agent').each do |u|
-            expect(Sessions).to receive(:send_to).with(u.id, { event: 'cti_list_push' })
-          end
-
           create(:cti_log)
+
+          expect(Sessions).to have_received(:send_to).with(agent.id, { event: 'cti_list_push' })
         end
 
-        context 'with over 60 existing Log records' do
-          before { create_list(:cti_log, 60) }
+        context 'with more existing Log records than the view limit' do
+          before { create_list(:cti_log, described_class.view_limit) }
 
           it '(always) pushes "cti_list_push" event' do
-            User.with_permissions('cti.agent').each do |u|
-              expect(Sessions).to receive(:send_to).with(u.id, { event: 'cti_list_push' })
-            end
+            expect(Sessions).to receive(:send_to).with(agent.id, { event: 'cti_list_push' })
 
             create(:cti_log)
           end
@@ -366,35 +580,29 @@ RSpec.describe Cti::Log do
       end
 
       context 'on update' do
-        subject!(:log) { create(:cti_log) }
+        subject!(:log) { travel_to(1.minute.ago) { create(:cti_log) } }
 
         it 'pushes "cti_list_push" event' do
-          User.with_permissions('cti.agent').each do |u|
-            expect(Sessions).to receive(:send_to).with(u.id, { event: 'cti_list_push' })
-          end
+          expect(Sessions).to receive(:send_to).with(agent.id, { event: 'cti_list_push' })
 
           log.touch
         end
 
-        context 'when among the latest 60 Log records' do
-          before { create_list(:cti_log, 59) }
+        context 'when among the latest Log records within the view limit' do
+          before { create_list(:cti_log, described_class.view_limit - 1) }
 
           it 'pushes "cti_list_push" event' do
-            User.with_permissions('cti.agent').each do |u|
-              expect(Sessions).to receive(:send_to).with(u.id, { event: 'cti_list_push' })
-            end
+            expect(Sessions).to receive(:send_to).with(agent.id, { event: 'cti_list_push' })
 
             log.touch
           end
         end
 
-        context 'when not among the latest 60 Log records' do
-          before { create_list(:cti_log, 60) }
+        context 'when not among the latest Log records within the view limit' do
+          before { create_list(:cti_log, described_class.view_limit) }
 
           it 'does NOT push "cti_list_push" event' do
-            User.with_permissions('cti.agent').each do |u|
-              expect(Sessions).not_to receive(:send_to).with(u.id, { event: 'cti_list_push' })
-            end
+            expect(Sessions).not_to receive(:send_to)
 
             log.touch
           end

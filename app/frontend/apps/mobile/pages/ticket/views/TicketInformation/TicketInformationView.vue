@@ -66,11 +66,18 @@ const router = useRouter()
   <LayoutHeader
     ref="headerElement"
     :refetch="refetchingStatus"
-    :back-title="`#${ticket?.number}`"
-    :title="$t('Ticket information')"
     :back-url="`/tickets/${internalId}`"
     :style="stickyStyles.header"
   >
+    <div class="flex flex-col items-center text-center text-sm/4">
+      <span class="order-2 text-base font-bold">
+        {{ $t('Ticket information') }}
+      </span>
+      <span v-if="ticket" class="order-1 line-clamp-1 break-all text-gray">
+        <span class="sr-only">{{ $t('Ticket number') }}</span>
+        #{{ ticket.number }}
+      </span>
+    </div>
     <template #after>
       <button
         v-if="hasPermission('ticket.agent')"
@@ -83,7 +90,7 @@ const router = useRouter()
     </template>
   </LayoutHeader>
   <div class="flex p-4" :style="stickyStyles.body">
-    <h1 class="line-clamp-3 flex flex-1 items-center text-xl leading-7 font-bold break-words">
+    <h1 class="line-clamp-3 flex flex-1 items-center text-xl/7 font-bold wrap-break-word">
       <CommonLoader position="left" :loading="loadingTicket">
         {{ ticket?.title }}
       </CommonLoader>

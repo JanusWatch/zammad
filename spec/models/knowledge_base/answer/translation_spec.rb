@@ -1,12 +1,12 @@
 # Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
 require 'rails_helper'
-require 'models/contexts/factory_context'
+require 'models/knowledge_base/plain_title_index_examples'
 
 RSpec.describe KnowledgeBase::Answer::Translation, current_user_id: 1, type: :model do
   subject { create(:knowledge_base_answer_translation) }
 
-  include_context 'factory'
+  it_behaves_like 'indexing the plain title'
 
   it { is_expected.to validate_presence_of(:title) }
   it { is_expected.to validate_uniqueness_of(:kb_locale_id).scoped_to(:answer_id).with_message(%r{}) }
@@ -20,6 +20,46 @@ RSpec.describe KnowledgeBase::Answer::Translation, current_user_id: 1, type: :mo
     it 'points at the answer page of the desktop app, in the locale of this translation' do
       expect(translation.desktop_url)
         .to eq("/desktop/knowledge-base/locale/#{translation.kb_locale.system_locale.locale}/answer/#{translation.answer_id}")
+    end
+  end
+
+  describe '#public_path' do
+    let(:translation) { create(:knowledge_base_answer).translation }
+    let(:locale)      { translation.kb_locale.system_locale.locale }
+    let(:category)    { translation.answer.category.translation_preferred(translation.kb_locale) }
+
+    it 'points at the answer page of the public help pages, ignoring a custom address' do
+      translation.kb_locale.knowledge_base.update!(custom_address: '/support')
+
+      expect(translation.public_path)
+        .to eq("/help/#{locale}/#{category.to_param}/#{translation.to_param}")
+    end
+  end
+
+  describe '#public_url' do
+    let(:translation)    { create(:knowledge_base_answer).translation }
+    let(:knowledge_base) { translation.kb_locale.knowledge_base }
+    let(:locale)         { translation.kb_locale.system_locale.locale }
+    let(:category)       { translation.answer.category.translation_preferred(translation.kb_locale) }
+    let(:host)           { "#{Setting.get('http_type')}://#{Setting.get('fqdn')}" }
+
+    it 'points at the answer page of the public help pages, in the locale of this translation' do
+      expect(translation.public_url)
+        .to eq("#{host}/help/#{locale}/#{category.to_param}/#{translation.to_param}")
+    end
+
+    it 'honours a custom address of the knowledge base' do
+      knowledge_base.update!(custom_address: '/support')
+
+      expect(translation.public_url)
+        .to eq("#{host}/support/#{locale}/#{category.to_param}/#{translation.to_param}")
+    end
+
+    it 'keeps an explicit port of a custom domain' do
+      knowledge_base.update!(custom_address: 'help.example.com:8080')
+
+      expect(translation.public_url)
+        .to eq("#{Setting.get('http_type')}://help.example.com:8080/#{locale}/#{category.to_param}/#{translation.to_param}")
     end
   end
 
@@ -162,6 +202,27 @@ RSpec.describe KnowledgeBase::Answer::Translation, current_user_id: 1, type: :mo
         expect(attrs['publication_state'])
           .to eq(answer.can_be_published_aasm.calculated_state)
       end
+    end
+  end
+
+  describe '.vector_index_reload' do
+    # A reload embeds one document at a time for however long the knowledge base is - a run that has
+    # become obsolete stops between documents instead of finishing what a successor throws away.
+    it 'stops between records once the run is obsolete', :aggregate_failures do
+      create_list(:knowledge_base_answer, 2)
+
+      allow(Service::AI::VectorDB::Available).to receive(:execute).and_return(true)
+      allow(described_class).to receive(:vector_index_scope).and_return(described_class.all)
+
+      updated = 0
+      allow_any_instance_of(described_class).to receive(:vector_index_update) { updated += 1 }
+
+      checks     = [false, true]
+      abort_when = -> { checks.shift }
+
+      expect { described_class.vector_index_reload(abort_when:) }
+        .to raise_error(Service::AI::VectorDB::Reload::Aborted)
+      expect(updated).to eq(1)
     end
   end
 
@@ -398,6 +459,19 @@ RSpec.describe KnowledgeBase::Answer::Translation, current_user_id: 1, type: :mo
 
         expect_reindex_of(translation)
       end
+    end
+  end
+
+  describe '#search_index_update_inline' do
+    subject(:translation) { create(:knowledge_base_answer_translation) }
+
+    before do
+      allow(SearchIndexBackend).to receive_messages(enabled?: true, update_inline: true)
+    end
+
+    it 'leaves documents with attachments to the background job', :aggregate_failures do
+      expect(translation.search_index_update_inline).to be(false)
+      expect(SearchIndexBackend).not_to have_received(:update_inline)
     end
   end
 end

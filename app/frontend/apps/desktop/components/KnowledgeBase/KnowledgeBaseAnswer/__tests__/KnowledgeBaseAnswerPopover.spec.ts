@@ -24,6 +24,7 @@ const buildTranslation = (
       __typename: 'KnowledgeBaseAnswerTranslation',
       id: convertToGraphQLId('KnowledgeBase::Answer::Translation', 1),
       title: 'Reset your password',
+      maybeLocale: null,
       visibility: EnumKnowledgeBaseVisibility.Published,
       categoryTreeTranslation: [
         {
@@ -34,6 +35,7 @@ const buildTranslation = (
       ],
       content: {
         __typename: 'KnowledgeBaseAnswerTranslationContent',
+        id: convertToGraphQLId('KnowledgeBase::Answer::Translation::Content', 1),
         bodyExcerpt: 'Steps to reset your password.',
       },
       answer: {

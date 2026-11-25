@@ -76,7 +76,16 @@ export const useApplicationStore = defineStore(
     const initializeConfigUpdateSubscription = (): void => {
       const scope = effectScope()
       scope.run(() => {
-        const configUpdatesSubscription = new SubscriptionHandler(useConfigUpdatesSubscription())
+        const configUpdatesSubscription = new SubscriptionHandler(
+          useConfigUpdatesSubscription({
+            context: {
+              subscription: {
+                // Public subscription which is also needed on the login screen.
+                keepAliveOnLogout: true,
+              },
+            },
+          }),
+        )
 
         configUpdatesSubscription.onResult((result) => {
           const updatedSetting = result.data?.configUpdates.setting
@@ -94,7 +103,10 @@ export const useApplicationStore = defineStore(
     const getConfig = async (): Promise<void> => {
       const configQuery = getApplicationConfigQuery()
 
-      const { data: result } = await configQuery.refetch()
+      // Without the config the application cannot start, so a failure has to stop the caller.
+      const { data: result, error } = await configQuery.refetch()
+      if (error) throw error
+
       if (result?.applicationConfig) {
         result.applicationConfig.forEach((item) => {
           config.value[item.key] = item.value
@@ -117,6 +129,11 @@ export const useApplicationStore = defineStore(
 
     const hasCustomProductBranding = computed(() =>
       Boolean(config.value.product_logo && config.value.product_logo !== 'logo.svg'),
+    )
+
+    // Import mode closes the instance to everyone except administrators, like maintenance mode does.
+    const isMaintenanceModeActive = computed(() =>
+      Boolean(config.value.maintenance_mode || config.value.import_mode),
     )
 
     // this is called right before router renders a page, - we remove "loading" element here instead of "setLoaded"
@@ -142,6 +159,7 @@ export const useApplicationStore = defineStore(
       getConfig,
       resetAndGetConfig,
       hasCustomProductBranding,
+      isMaintenanceModeActive,
       initialized,
       setInitialized,
     }

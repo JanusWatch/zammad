@@ -51,6 +51,36 @@ Use `rails zammad:bootstrap:init` only if you are intending to initialize a
 previously uninitialized environment like for example `production`
 or run on a fresh install.
 
+### Changing the Ports
+
+The development stack takes every port from the environment, so it can be moved
+out of the way of another stack or of a test run:
+
+| Process | Variable | Default |
+| --- | --- | --- |
+| Rails | `ZAMMAD_RAILS_PORT` | `3000` |
+| WebSocket server | `ZAMMAD_WEBSOCKET_PORT` | `6042` |
+| Vite | `VITE_RUBY_PORT` | `3036` |
+
+Export them before `bin/dev`, so that the whole stack agrees on them - the
+Rails process tells the browser which websocket port to dial, and that has to
+be the port the websocket process listens on:
+
+```sh
+export ZAMMAD_RAILS_PORT=3100 ZAMMAD_WEBSOCKET_PORT=6142 VITE_RUBY_PORT=3136
+bin/dev
+```
+
+The test suite has its own defaults (`3001` for Capybara and `6043` for its
+websocket server), so it never collides with a running stack of the same
+checkout. See
+[how to test with RSpec and Capybara](../cookbook/how-to-test-with-rspec-and-capybara.md)
+for its variables.
+
+Note that several checkouts of Zammad still share their databases and their
+Redis namespaces. Point `DATABASE_URL` and `REDIS_URL` elsewhere per checkout
+if that gets in the way.
+
 ### Package Tasks
 
 - `rails zammad:package:migrate` – Run any pending package migrations
@@ -94,7 +124,7 @@ Before running tests for the first time, prepare the test database and compile a
 
 Further testing:
 
-- [How to test with Vitest and Cypress](../cookbook/how-to-test-with-vitest-and-cypress.md)
+- [How to test with Vitest](../cookbook/how-to-test-with-vitest.md)
 
 ## Linting
 
@@ -119,7 +149,7 @@ Some tasks can be executed directly via Rails console or `rails r`:
 
 ### Configure System Settings
 
-- `rails r "Setting.set('es_url', 'http://elasticsearch:9200')"` - Configure Elasticsearch host
+- `rails r "Setting.set('es_url', 'http://localhost:9200')"` - Configure Elasticsearch host
 - `rails r "Setting.set('core_workflow_ajax_mode', true)"` - Enable Core Workflow AJAX mode
 - `rails r "Setting.set('ui_desktop_beta_switch', true)"` - Enable Desktop View BETA UI toggle
 

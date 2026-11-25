@@ -93,7 +93,7 @@ const { collapseEnter, collapseAfterEnter, collapseLeave } = useTransitionCollap
 <template>
   <output
     :id="context.id"
-    class="block rounded-lg bg-blue-200 focus:outline focus:outline-1 focus:outline-offset-1 focus:outline-blue-800 hover:focus:outline-blue-800 dark:bg-gray-700"
+    class="block rounded-lg bg-blue-200 focus:outline-1 focus:outline-offset-1 focus:outline-blue-800 hover:focus:outline-blue-800 dark:bg-gray-700"
     role="tree"
     :class="context.classes.input"
     :name="context.node.name"
@@ -140,7 +140,7 @@ const { collapseEnter, collapseAfterEnter, collapseLeave } = useTransitionCollap
                 {
                   $cmp: 'CommonLabel',
                   props: {
-                    class: 'text-black dark:text-white',
+                    class: 'text-contrast',
                   },
                   children: [
                     {
@@ -163,7 +163,7 @@ const { collapseEnter, collapseAfterEnter, collapseLeave } = useTransitionCollap
                 {
                   $cmp: 'CommonLabel',
                   props: {
-                    class: 'text-stone-200 dark:text-neutral-500',
+                    class: 'text-muted',
                   },
                   children: i18n.t(option.description),
                 },
@@ -175,7 +175,7 @@ const { collapseEnter, collapseAfterEnter, collapseLeave } = useTransitionCollap
         />
         <CommonIcon
           v-if="option.children && !valueLookup[option.value]"
-          class="shrink-0 fill-stone-200 hover:fill-black focus:outline-hidden focus-visible:rounded-xs focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-blue-800 dark:fill-neutral-500 dark:hover:fill-white"
+          class="shrink-0 fill-stone-200 hover:fill-black focus:outline-hidden focus-visible:rounded-xs focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-blue-800 dark:fill-neutral-500 dark:hover:fill-white"
           :aria-label="i18n.t('Toggle group')"
           :name="collapseLookup[option.value] ? 'chevron-up' : 'chevron-down'"
           size="xs"
@@ -227,7 +227,7 @@ const { collapseEnter, collapseAfterEnter, collapseLeave } = useTransitionCollap
                     {
                       $cmp: 'CommonLabel',
                       props: {
-                        class: 'text-black dark:text-white',
+                        class: 'text-contrast',
                       },
                       children: [
                         {
@@ -250,7 +250,7 @@ const { collapseEnter, collapseAfterEnter, collapseLeave } = useTransitionCollap
                     {
                       $cmp: 'CommonLabel',
                       props: {
-                        class: 'text-stone-200 dark:text-neutral-500',
+                        class: 'text-muted',
                       },
                       children: i18n.t(childOption.description),
                     },

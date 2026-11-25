@@ -36,6 +36,7 @@ RSpec.describe 'Ticket Article Attachments', authenticated_as: -> { agent }, typ
           get "/api/v1/ticket_attachment/#{ticket1.id}/#{article1.id}/#{store_file.id}", params: {}
           expect(response).to have_http_status(:ok)
           expect(response.body).to eq('some content')
+          expect(response.headers['Content-Length']).to eq('some content'.bytesize.to_s)
 
           get "/api/v1/ticket_attachment/#{ticket1.id}/#{article2.id}/#{store_file.id}", params: {}
           expect(response).to have_http_status(:forbidden)
@@ -167,10 +168,11 @@ RSpec.describe 'Ticket Article Attachments', authenticated_as: -> { agent }, typ
       end
 
       context 'when accessed as a customer' do
-        it 'returns forbidden for attachment download' do
+        it 'returns forbidden for attachment download', :aggregate_failures do
           authenticated_as(customer)
           get "/api/v1/ticket_attachment/#{ticket.id}/#{article.id}/#{secret_store_file.id}"
           expect(response).to have_http_status(:forbidden)
+          expect(response.body).not_to include('secret file content')
         end
 
         it 'returns forbidden for attachment clone' do
@@ -181,9 +183,10 @@ RSpec.describe 'Ticket Article Attachments', authenticated_as: -> { agent }, typ
       end
 
       context 'when accessed as an agent' do
-        it 'returns ok for attachment download' do
+        it 'returns ok for attachment download', :aggregate_failures do
           get "/api/v1/ticket_attachment/#{ticket.id}/#{article.id}/#{secret_store_file.id}"
           expect(response).to have_http_status(:ok)
+          expect(response.body).to eq('secret file content')
         end
 
         it 'allows attachment clone' do

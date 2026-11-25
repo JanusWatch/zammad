@@ -822,13 +822,24 @@ RSpec.describe Ticket::Article, type: :model do
              })
     end
 
-    describe '#attributes_with_association_names' do
-      it 'keeps inline attachments in the attachments list' do
-        attributes = article.attributes_with_association_names
+    shared_examples 'listing inline attachments separately' do |method|
+      it 'excludes inline attachments from the attachments list' do
+        attributes = article.public_send(method)
 
         expect(attributes['attachments'].pluck('filename'))
-          .to contain_exactly('some_file1.jpg', 'some_file2.pdf')
+          .to contain_exactly('some_file2.pdf')
       end
+
+      it 'lists inline attachments under inline_attachments' do
+        attributes = article.public_send(method)
+
+        expect(attributes['inline_attachments'].pluck('filename'))
+          .to contain_exactly('some_file1.jpg')
+      end
+    end
+
+    describe '#attributes_with_association_names' do
+      it_behaves_like 'listing inline attachments separately', :attributes_with_association_names
 
       it 'replaces cid references in the body' do
         attributes = article.attributes_with_association_names
@@ -838,12 +849,32 @@ RSpec.describe Ticket::Article, type: :model do
     end
 
     describe '#attributes_with_association_ids' do
-      it 'excludes inline attachments from the attachments list' do
-        attributes = article.attributes_with_association_ids
+      it_behaves_like 'listing inline attachments separately', :attributes_with_association_ids
+    end
+  end
 
-        expect(attributes['attachments'].pluck('filename'))
-          .to contain_exactly('some_file2.pdf')
-      end
+  describe '.insert_urls' do
+    let(:cid)     { "#{SecureRandom.uuid}@zammad.example.com" }
+    let(:article) { create(:ticket_article, content_type: 'text/html', body: "<img src=\"cid:#{cid}\"> some text") }
+    let(:url)     { "/api/v1/ticket_attachment/#{article.ticket_id}/#{article.id}/#{article.attachments.first.id}?view=inline" }
+
+    before do
+      create(:store, object: 'Ticket::Article', o_id: article.id, data: 'fake', filename: 'inline.jpg',
+                     preferences: { 'Content-Type' => 'image/jpeg', 'Content-ID' => "<#{cid}>", 'Content-Disposition' => 'inline' })
+    end
+
+    it 'replaces the inline image references of the article body' do
+      body, attachments = described_class.insert_urls(article)
+
+      expect(body).to eq("<img src=\"#{url}\"> some text")
+      expect(attachments).to be_empty
+    end
+
+    it 'replaces them in a stand-in body without touching the article' do
+      body, = described_class.insert_urls(article, "<p>Translated</p><img src=\"cid:#{cid}\">")
+
+      expect(body).to eq("<p>Translated</p><img src=\"#{url}\">")
+      expect(article.body).to start_with('<img src="cid:')
     end
   end
 
@@ -892,6 +923,27 @@ RSpec.describe Ticket::Article, type: :model do
       it 'returns false' do
         expect(article.body_rendering_error).to be(false)
       end
+    end
+  end
+
+  describe '#body_excerpt' do
+    it 'strips HTML and marks the cut' do
+      article = create(:ticket_article, content_type: 'text/html', body: "<p>#{'This is one example sentence with some words. ' * 10}</p>")
+
+      expect(article.body_excerpt).to end_with('…')
+      expect(article.body_excerpt).not_to include('<p>')
+    end
+
+    it 'keeps a short body as it is' do
+      article = create(:ticket_article, content_type: 'text/plain', body: 'Hello there. All good.')
+
+      expect(article.body_excerpt).to eq('Hello there. All good.')
+    end
+
+    it 'does not treat angle brackets in a plain text body as HTML' do
+      article = create(:ticket_article, content_type: 'text/plain', body: 'Use the <placeholder> as it is.')
+
+      expect(article.body_excerpt).to eq('Use the <placeholder> as it is.')
     end
   end
 end

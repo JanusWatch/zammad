@@ -35,6 +35,7 @@ class App.ControllerTabs extends App.Controller
 
     @html App.view('generic/tabs')(
       header: @header
+      description: @description
       subHeader: @subHeader
       tabs: displayTabs
       addTab: @addTab
@@ -65,6 +66,10 @@ class App.ControllerTabs extends App.Controller
       @$(".nav-tabs li a[href='#{@lastActiveTab}']").tab('show')
     else
       @$('.nav-tabs li:first a').tab('show')
+
+    # Bootstrap looks the pane up in the document, which misses it while a hidden task
+    #   is detached from it, e.g. an admin page rendered anew after a setting change.
+    @$(@$('.nav-tabs li.active a').attr('href')).addClass('active')
 
   tabRemember: (e) =>
     @lastActiveTab = $(e.target).attr('href')

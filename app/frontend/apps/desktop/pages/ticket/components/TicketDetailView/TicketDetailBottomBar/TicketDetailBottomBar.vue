@@ -52,7 +52,8 @@ const { ticket } = useTicketInformation()
     <CommonButton
       v-if="dirty"
       size="large"
-      variant="danger"
+      variant="tertiary"
+      prefix-icon="trash3"
       :disabled="disabled"
       @click="$emit('discard', $event)"
       >{{ $t('Discard your unsaved changes') }}
@@ -64,6 +65,7 @@ const { ticket } = useTicketInformation()
       v-if="isTicketAgent"
       :ticket-id="ticketId"
       :form="form"
+      :dirty="dirty"
       :disabled="disabled"
       :group-id="groupId"
       :can-use-draft="canUseDraft"
@@ -75,7 +77,7 @@ const { ticket } = useTicketInformation()
       v-else
       size="large"
       class="truncate"
-      variant="submit"
+      :variant="dirty ? 'submit' : 'tertiary'"
       type="button"
       :disabled="disabled"
       @click="$emit('submit', $event)"

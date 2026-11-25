@@ -54,6 +54,7 @@ const buildLinkedAnswer = (
   __typename: 'KnowledgeBaseAnswerTranslation',
   id: convertToGraphQLId('KnowledgeBase::Answer::Translation', id),
   title,
+  maybeLocale: null,
   visibility: EnumKnowledgeBaseVisibility.Published,
   categoryTreeTranslation: [
     {
@@ -64,6 +65,7 @@ const buildLinkedAnswer = (
   ],
   content: {
     __typename: 'KnowledgeBaseAnswerTranslationContent',
+    id: convertToGraphQLId('KnowledgeBase::Answer::Translation::Content', id),
     bodyExcerpt: `Excerpt for ${title}`,
   },
   answer: {
@@ -128,6 +130,7 @@ const renderRelatedKnowledge = (
           ticket: computed(() => ticket),
           ticketInternalId: computed(() => ticket.internalId),
           isTicketEditable: computed(() => isTicketEditable),
+          newTicketArticlePresent: ref(false),
         },
       ],
       // The AI draft action hands the active sidebar to the flyout it opens.

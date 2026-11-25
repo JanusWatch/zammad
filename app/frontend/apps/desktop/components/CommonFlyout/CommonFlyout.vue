@@ -324,7 +324,7 @@ const { transitions } = useTransitionConfig()
         { 'transition-all': !isResizing, hidden: !isActive },
         isSmallScreen
           ? 'inset-6 w-auto overflow-hidden rounded-xl border print:inset-0'
-          : 'overflow-clip-x inset-y-0 inset-e-0 w-full rounded-s-xl border-y border-s lg:w-(--flyout-container-width) print:w-full',
+          : 'inset-y-0 inset-e-0 w-full overflow-x-clip rounded-s-xl border-y border-s lg:w-(--flyout-container-width) print:w-full',
       ]"
       :fullscreen="isFullscreen"
       :aria-labelledby="`${flyoutId}-title`"
@@ -346,7 +346,7 @@ const { transitions } = useTransitionConfig()
             class="min-h-7 grow gap-1.5"
             size="large"
             :prefix-icon="headerIcon"
-            icon-color="text-stone-200 dark:text-neutral-500"
+            icon-color="text-muted"
           >
             {{ $t(headerTitle) }}
           </CommonLabel>

@@ -15,7 +15,7 @@ are committed — and report findings.
 1. Determine what to review.
    - **Default** — invoked from the development workflow, after Test and before Commit —
      run `git diff HEAD` for all uncommitted changes, staged and unstaged.
-   - **If the caller supplied a scope, use that instead.** The `code-review` skill is
+   - **If the caller supplied a scope, use that instead.** The `zammad-code-review` skill is
      invoked by a person outside the workflow and may pass a branch-wide scope
      (`merge-base(develop, HEAD)` → working tree), where `git diff HEAD` would be empty.
 
@@ -40,7 +40,7 @@ finding, what is out of scope, how to classify findings, and how to write them.
 Apply it rather than your own judgement about what matters, and do not restate it
 here.
 
-Two things from it deserve emphasis in this position specifically:
+Three things from it deserve emphasis in this position specifically:
 
 - **The flagging threshold.** You may be reviewing work in progress, where scaffolding
   and half-finished edges are expected. Report what meets the bar and nothing else.

@@ -4,6 +4,25 @@ require 'rails_helper'
 
 RSpec.describe 'Manage > AI > Ticket Summary', type: :system do
 
+  context 'with a non-English locale', authenticated_as: :admin do
+    let(:admin)  { create(:admin, preferences: { locale: 'de-de' }) }
+    let(:source) { 'Submit' }
+    let(:target) { "[TRANSLATED] #{source}" }
+
+    before do
+      Translation.where(locale: 'de-de', source:).destroy_all
+      create(:translation, locale: 'de-de', source:, target:)
+
+      visit '/#ai/ticket_summary'
+    end
+
+    it 'translates the summary generation submit button (#6543)' do
+      within :active_content do
+        expect(page).to have_button(target)
+      end
+    end
+  end
+
   context 'with ticket summary service options', authenticated_as: :admin do
     let(:admin) { create(:admin) }
 
@@ -23,6 +42,7 @@ RSpec.describe 'Manage > AI > Ticket Summary', type: :system do
         find('label', text: 'Customer Sentiment').click
       end
 
+      wait.until { Setting.get('ai_assistance_ticket_summary_config')['customer_sentiment'] == false }
       expect(Setting.get('ai_assistance_ticket_summary_config')).to eq({
                                                                          'generate_on'        => 'on_ticket_detail_opening',
                                                                          'open_questions'     => true, # false by default
@@ -39,22 +59,22 @@ RSpec.describe 'Manage > AI > Ticket Summary', type: :system do
         select('On ticket summary sidebar activation', from: 'generate_on')
         click_on('Submit')
 
+        wait_for_setting('ai_assistance_ticket_summary_config', 'on_ticket_summary_sidebar_activation', key: 'generate_on')
         expect(Setting.get('ai_assistance_ticket_summary_config')).to include(generate_on: 'on_ticket_summary_sidebar_activation')
       end
     end
 
     it 'can configure the ticket summary selector' do
       within(:active_content) do
-        find('.js-filterElement .js-attributeSelector select')
-          .find('option', text: 'Priority')
+        find('.js-filterElement .js-attributeSelector select option', text: 'Priority')
           .select_option
 
-        find('.js-filterElement .js-value select')
-          .find('option', text: '3 high')
+        find('.js-filterElement .js-value select option', text: '3 high')
           .select_option
 
         click_on 'Save'
 
+        wait.until { Setting.get('ai_assistance_ticket_summary_selector').present? }
         expect(Setting.get('ai_assistance_ticket_summary_selector'))
           .to eq({
                    'condition' => {
@@ -78,8 +98,42 @@ RSpec.describe 'Manage > AI > Ticket Summary', type: :system do
         within(:active_content) do
           click '.js-aiAssistanceTicketSummarySetting'
 
-          expect(page).to have_text('The provider configuration is disabled. Before proceeding, please set up at least one provider in AI > Providers.')
+          expect(page).to have_text('The AI provider configuration is disabled. Before proceeding, please set up at least one provider in AI > Providers.')
         end
+      end
+
+      # Routing is configuration, so it can be prepared while the switch is off.
+      it 'still offers the provider routing' do
+        within(:active_content) do
+          expect(page).to have_css('.js-featureProviderButton', text: 'Provider')
+        end
+      end
+    end
+
+    context 'when routing the feature to a connection' do
+      let(:other_connection) { create(:ai_provider_connection, name: 'Other connection') }
+
+      before do
+        create(:ai_provider_connection, :default_chat, name: 'Default connection')
+        other_connection
+        Setting.set('ai_provider', true)
+
+        visit '/#ai/ticket_summary'
+      end
+
+      it 'writes the routing row from the provider modal' do
+        within(:active_content) do
+          click '.js-featureProviderButton'
+        end
+
+        in_modal do
+          expect(page).to have_select('provider_connection_id', options: ['Default (Default connection)', 'Default connection', 'Other connection'])
+
+          select 'Other connection', from: 'provider_connection_id'
+          click_on 'Submit'
+        end
+
+        wait.until { AI::FeatureProvider.find_by(identifier: 'ticket_summarize')&.provider_connection_id == other_connection.id }
       end
     end
   end

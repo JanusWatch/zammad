@@ -1,9 +1,8 @@
 <!-- Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/ -->
 
 <script setup lang="ts">
-import { useElementBounding, useElementVisibility, useWindowSize } from '@vueuse/core'
 import { escapeRegExp } from 'lodash-es'
-import { computed, nextTick, onMounted, ref, toRef, watch, useTemplateRef } from 'vue'
+import { computed, ref, toRef, watch, useTemplateRef } from 'vue'
 
 import useValue from '#shared/components/Form/composables/useValue.ts'
 import useFlatSelectOptions from '#shared/components/Form/fields/FieldTreeSelect/composables/useFlatSelectOptions.ts'
@@ -13,12 +12,13 @@ import type {
 } from '#shared/components/Form/fields/FieldTreeSelect/types.ts'
 import useSelectOptions from '#shared/composables/useSelectOptions.ts'
 import useSelectPreselect from '#shared/composables/useSelectPreselect.ts'
-import { useTrapTab } from '#shared/composables/useTrapTab.ts'
 import { useFormBlock } from '#shared/form/useFormBlock.ts'
 import { i18n } from '#shared/i18n.ts'
 import stopEvent from '#shared/utils/events.ts'
+import { deaccent } from '#shared/utils/labelMatching.ts'
 
 import CommonInputSearch from '#desktop/components/CommonInputSearch/CommonInputSearch.vue'
+import { useSelectDropdown } from '#desktop/form/composables/useSelectDropdown/useSelectDropdown.ts'
 
 import FieldTreeSelectInputDropdown from './FieldTreeSelectInputDropdown.vue'
 
@@ -68,15 +68,24 @@ const selectInstance = useTemplateRef('select')
 
 const filter = ref('')
 
-const { activateTabTrap, deactivateTabTrap } = useTrapTab(inputElement, true)
+const {
+  deactivateTabTrap,
+  isBelowHalfScreen,
+  isInputVisible,
+  openSelectDropdown,
+  openOrMoveFocusToDropdown,
+} = useSelectDropdown(props.context, {
+  input: inputElement,
+  output: outputElement,
+  filterInput: filterInputElement,
+  dropdown: selectInstance,
+})
 
 const clearFilter = () => {
   filter.value = ''
 }
 
 watch(() => contextReactive.value.noFiltering, clearFilter)
-
-const deaccent = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 
 const filteredOptions = computed(() => {
   // In case we are not currently filtering for a parent, search across all options.
@@ -141,51 +150,6 @@ const clearValue = () => {
   if (props.context.disabled) return
   clearInternalValue()
   focusOutputElement()
-}
-
-const inputElementBounds = useElementBounding(inputElement)
-const isInputVisible = !!VITE_TEST_MODE || useElementVisibility(inputElement)
-const windowSize = useWindowSize()
-
-const isBelowHalfScreen = computed(() => {
-  return inputElementBounds.y.value > windowSize.height.value / 2
-})
-
-const openSelectDropdown = () => {
-  if (selectInstance.value?.isOpen || props.context.disabled) return
-  if (!inputElement.value) return
-
-  selectInstance.value?.openDropdown(inputElementBounds, windowSize.height)
-
-  requestAnimationFrame(() => {
-    activateTabTrap()
-    if (props.context.noFiltering) outputElement.value?.focus()
-    else filterInputElement.value?.focus()
-  })
-}
-
-onMounted(async () => {
-  if (!props.context.autoOpenDropdown) return
-  // Defer past the current tick so the parent's reactive updates flush
-  // before the dropdown opens; opening synchronously during the child's
-  // mount can race with focus/click-outside wiring.
-  await nextTick()
-  openSelectDropdown()
-})
-
-const openOrMoveFocusToDropdown = (lastOption = false) => {
-  if (!selectInstance.value?.isOpen) {
-    openSelectDropdown()
-    return
-  }
-
-  deactivateTabTrap()
-
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      selectInstance.value?.moveFocusToDropdown(lastOption)
-    })
-  })
 }
 
 const onCloseDropdown = () => {
@@ -276,7 +240,7 @@ setupMissingOrDisabledOptionHandling()
         ref="output"
         role="combobox"
         :name="context.node.name"
-        class="relative flex grow items-center gap-2.5 overflow-hidden px-2.5 py-2 text-black focus:outline-hidden dark:text-white"
+        class="relative flex grow items-center gap-2.5 overflow-hidden px-2.5 py-2 text-contrast focus:outline-hidden"
         tabindex="0"
         :aria-labelledby="`label-${context.id}`"
         :aria-disabled="context.disabled ? 'true' : undefined"
@@ -313,12 +277,12 @@ setupMissingOrDisabledOptionHandling()
             role="listitem"
           >
             <div
-              class="inline-flex cursor-default items-center gap-1 rounded bg-white px-1.5 py-0.5 text-xs text-black dark:bg-gray-200 dark:text-white formkit-alternative-background:bg-neutral-100 dark:formkit-alternative-background:bg-gray-200"
+              class="inline-flex cursor-default items-center gap-1 rounded-sm bg-white px-1.5 py-0.5 text-xs/snug text-contrast dark:bg-gray-200 formkit-alternative-background:bg-neutral-100 dark:formkit-alternative-background:bg-gray-200"
             >
               <CommonIcon
                 v-if="getSelectedOptionIcon(selectedValue)"
                 :name="getSelectedOptionIcon(selectedValue)"
-                class="shrink-0 fill-gray-100 dark:fill-neutral-400"
+                class="shrink-0 fill-normal"
                 size="xs"
                 decorative
               />
@@ -359,7 +323,7 @@ setupMissingOrDisabledOptionHandling()
             <CommonIcon
               v-if="getSelectedOptionIcon(currentValue)"
               :name="getSelectedOptionIcon(currentValue)"
-              class="shrink-0 fill-gray-100 dark:fill-neutral-400"
+              class="shrink-0 fill-normal"
               size="tiny"
               decorative
             />

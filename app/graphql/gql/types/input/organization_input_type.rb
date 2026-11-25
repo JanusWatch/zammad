@@ -14,5 +14,9 @@ module Gql::Types::Input
     argument :email_address_id, Integer, required: false, description: 'The organization mailbox email address id'
     argument :active, Boolean, required: false, description: 'The organization active flag'
     argument :note, String, required: false, description: 'The organization note'
+
+    def self.object_attribute_values_object
+      'Organization'
+    end
   end
 end

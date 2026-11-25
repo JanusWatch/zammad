@@ -31,12 +31,67 @@ RSpec.describe Service::Ticket::Create, current_user_id: -> { user.id } do
 
     it 'creates a ticket with customer email address' do
       test_email = Faker::Internet.unique.email
-      ticket_data[:customer] = test_email
+      ticket_data[:customer] = { email: test_email }
 
       expect(service_result.customer).to have_attributes(
         email:    test_email,
         role_ids: Role.signup_role_ids
       )
+    end
+
+    it 'takes an existing customer by email address' do
+      ticket_data[:customer] = { email: customer.email }
+
+      expect(service_result.customer).to eq(customer)
+    end
+
+    context 'when the customer is given as a phone number' do
+      let(:phone_number) { '+49 30 609812345' }
+
+      before { ticket_data[:customer] = { phone: phone_number } }
+
+      it 'creates a customer with the number' do
+        expect(service_result.customer).to have_attributes(
+          phone:    phone_number,
+          email:    '',
+          role_ids: Role.signup_role_ids
+        )
+      end
+
+      it 'indexes the number as the caller ID of the new customer, so the next call finds them' do
+        expect(Cti::CallerId.where(user_id: service_result.customer.id, level: 'known').pluck(:caller_id))
+          .to include('4930609812345')
+      end
+
+      it 'takes an existing customer whose phone is the number, however written' do
+        existing_customer = create(:customer, phone: '030 / 609812345')
+
+        expect(service_result.customer).to eq(existing_customer)
+      end
+
+      it 'takes an existing customer whose mobile is the number' do
+        existing_customer = create(:customer, mobile: '0049 30 609812345')
+
+        expect(service_result.customer).to eq(existing_customer)
+      end
+
+      it 'passes over a user who only mentions the number' do
+        create(:customer, note: "Reachable at #{phone_number} in the morning.")
+
+        expect(service_result.customer).to have_attributes(phone: phone_number, note: '')
+      end
+
+      it 'rejects a value that is no phone number' do
+        ticket_data[:customer] = { phone: 'not a number' }
+
+        expect { service_result }.to raise_error(Exceptions::InvalidAttribute, 'The phone number is invalid.')
+      end
+
+      it 'rejects a number too short to be one' do
+        ticket_data[:customer] = { phone: '12345' }
+
+        expect { service_result }.to raise_error(Exceptions::InvalidAttribute)
+      end
     end
 
     it 'fails to create ticket without access' do
@@ -57,6 +112,52 @@ RSpec.describe Service::Ticket::Create, current_user_id: -> { user.id } do
         .to have_attributes(
           body: sample_body
         )
+    end
+
+    context 'when an article is present' do
+      before do
+        ticket_data[:article] = { body: Faker::Lorem.sentence }
+      end
+
+      it 'runs the core workflow validation only for the ticket data', :aggregate_failures do
+        allow(CoreWorkflow).to receive(:perform).and_call_original
+
+        expect(service_result.screen).to eq('create_middle')
+        expect(CoreWorkflow).to have_received(:perform)
+          .with(hash_including(payload: hash_including('request_id' => 'ChecksCoreWorkflow.validate_workflows')))
+          .once
+      end
+
+      context 'when a value of the ticket is not allowed' do
+        let(:open_state) { Ticket::State.find_by(name: 'open') }
+
+        before do
+          ticket_data[:state] = open_state
+          create(:core_workflow,
+                 object:  'Ticket',
+                 perform: {
+                   'ticket.state_id': {
+                     operator:      'remove_option',
+                     remove_option: [open_state.id.to_s]
+                   },
+                 })
+        end
+
+        it 'raises an error and creates no ticket' do
+          expect { service_result }
+            .to raise_error(Exceptions::ApplicationModel, "Invalid value '#{open_state.id}' for field 'state_id'!")
+            .and not_change(Ticket, :count)
+        end
+      end
+    end
+
+    it 'fills in the sender and the recipient of an agent\'s article, but keeps those of a prepared one', :aggregate_failures do
+      ticket_data[:article] = { body: 'Hello', type: 'phone', sender: 'Agent', to: 'someone@example.com' }
+
+      expect(service_result.articles.first.to).not_to eq('someone@example.com')
+
+      prepared = described_class.with_current_user(user).execute(ticket_data: ticket_data.merge(article: { body: 'Hello', type: 'phone', sender: 'Agent', to: 'someone@example.com' }), prepared_article: true)
+      expect(prepared.articles.first.to).to eq('someone@example.com')
     end
 
     context 'when email article should be created, but to is not present' do
@@ -236,12 +337,30 @@ RSpec.describe Service::Ticket::Create, current_user_id: -> { user.id } do
       end
 
       it 'raises error if shared draft group does not match ticket group' do
-        shared_draft.update! group: create(:group)
-
-        group.update! shared_drafts: false
+        shared_draft.update! group: create(:group, shared_drafts: true)
 
         expect { service_result }
           .to raise_error(Exceptions::UnprocessableContent)
+      end
+
+      # A user who may not create the ticket never reaches the draft: the
+      #   transaction rolls the destroy back. Only a customer, who may create a
+      #   ticket in any group, can consume a draft they have no access to.
+      context 'when the user has no create access to the shared draft group' do
+        let(:user) { create(:customer) }
+
+        before { ticket_data[:customer] = user }
+
+        it 'raises error' do
+          expect { service_result }
+            .to raise_error(Pundit::NotAuthorizedError)
+        end
+
+        it 'does not destroy given shared draft' do
+          suppress(Pundit::NotAuthorizedError) { service_result }
+
+          expect(Ticket::SharedDraftStart).to exist(shared_draft.id)
+        end
       end
     end
 
@@ -288,7 +407,7 @@ RSpec.describe Service::Ticket::Create, current_user_id: -> { user.id } do
           Setting.set('idoit_integration', true)
         end
 
-        it 'adds github links' do
+        it 'adds idoit object ids' do
           expect(service_result.preferences).to eq({ 'idoit' => { 'object_ids' => [42] } })
         end
       end

@@ -37,8 +37,6 @@ RSpec.describe 'Desktop > Ticket > Editor and Advanced Features', app: :desktop_
   end
 
   before do
-    skip 'Editor scenario relies on Chrome-specific selection/cursor behavior.' if Capybara.current_driver == :zammad_firefox
-
     Setting.set('time_accounting', true)
     Setting.set('time_accounting_types', true)
     Setting.set('time_accounting_unit', 'minute')
@@ -53,7 +51,7 @@ RSpec.describe 'Desktop > Ticket > Editor and Advanced Features', app: :desktop_
     wait_for_form_to_settle("form-ticket-edit-#{ticket.id}")
   end
 
-  it 'covers the full editor and advanced features scenario', performs_jobs: true do
+  def start_reply_with_cite
     cite_article_text(first_cite)
 
     # The signature is inserted asynchronously after the reply form opens -
@@ -66,10 +64,20 @@ RSpec.describe 'Desktop > Ticket > Editor and Advanced Features', app: :desktop_
 
     editor.input_element.send_keys(' First reply text.')
 
-    cite_article_text(second_cite)
-    find_editor('Text').input_element.send_keys(' Second reply text.')
+    editor_focus_flag
+  end
+
+  it 'keeps the editor toolbar reachable while scrolling the draft' do
+    start_reply_with_cite
 
     expect_toolbar_visible_while_scrolling
+  end
+
+  it 'formats a cited reply with a text module, headings and a table' do
+    start_reply_with_cite
+
+    cite_article_text(second_cite)
+    find_editor('Text').input_element.send_keys(' Second reply text.')
 
     insert_text_module_at_top
 
@@ -84,6 +92,10 @@ RSpec.describe 'Desktop > Ticket > Editor and Advanced Features', app: :desktop_
     select_table_option('Toggle header column')
     fill_first_table_cell('A1')
     insert_row_between_existing_rows
+  end
+
+  it 'submits a reply with tag and accounted time, then mentions an agent in an internal note', performs_jobs: true do
+    editor_focus_flag = start_reply_with_cite
 
     add_tag('editor-scenario')
 
@@ -245,8 +257,7 @@ RSpec.describe 'Desktop > Ticket > Editor and Advanced Features', app: :desktop_
       # An action that wrapped out of the visible toolbar row stays in the
       # DOM, but is disabled (ActionButton.vue) and reachable only via the
       # overflow menu. Detect direct availability via the enabled state:
-      # Selenium reports the clipped button as invisible, Playwright as
-      # visible, but both agree on the disabled property.
+      # Playwright reports the clipped button as visible.
       if has_button?(label, disabled: false, wait: 0.5)
         in_toolbar = true
         find_button(label, disabled: false).click
@@ -475,9 +486,9 @@ RSpec.describe 'Desktop > Ticket > Editor and Advanced Features', app: :desktop_
     # Capybara::DSL#find it calls super into (which re-resolves the also
     # overridden `page`), so the result is wrapped twice. #element only
     # peels one layer, still leaving a delegator that Capybara does not
-    # recognize as an element (silently scrolls nowhere under Selenium,
-    # and the Playwright driver raises when serializing it as a script
-    # argument). #to_capybara_node unwraps any number of delegator layers.
+    # recognize as an element (the Playwright driver raises when
+    # serializing it as a script argument). #to_capybara_node unwraps any
+    # number of delegator layers.
     page.scroll_to(button.to_capybara_node, align: :center)
     wait.until { !button.obscured? }
 

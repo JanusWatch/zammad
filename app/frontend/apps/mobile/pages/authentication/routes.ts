@@ -1,5 +1,8 @@
 // Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
+// The app shell loads this store on start, so a dynamic import could not split it off.
+import { usePushNotificationsStore } from '#mobile/entities/user/current/stores/pushNotifications.ts'
+
 import { useAfterAuthPlugins } from './after-auth/composable/useAfterAuthPlugins.ts'
 
 import type { RouteRecordRaw } from 'vue-router'
@@ -48,6 +51,14 @@ const route: RouteRecordRaw[] = [
         const authentication = useAuthenticationStore()
 
         clearAllNotifications()
+
+        // Needs the session, so it has to happen before the logout itself.
+        //   A device that keeps receiving the notifications of a user who
+        //   logged out must not happen, but a failure must not block the logout.
+        await usePushNotificationsStore()
+          .unregisterDevice()
+          .catch((error) => console.error(error))
+
         await authentication.logout()
 
         if (authentication.externalLogout) return false

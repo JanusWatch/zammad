@@ -46,8 +46,9 @@ const { goToItem, goToItemLinkColumn, loadMore, resort, storageKeyId } = useList
     <div v-else-if="items.length">
       <CommonAdvancedTable
         :caption="caption"
-        :object="EnumObjectManagerObjects.User"
+        :entity="EnumObjectManagerObjects.User"
         :headers="headers"
+        :disable-relation-sorting="disableRelationSorting"
         :order-by="orderBy"
         :order-direction="orderDirection"
         :group-by="groupBy"
@@ -81,10 +82,10 @@ const { goToItem, goToItemLinkColumn, loadMore, resort, storageKeyId } = useList
                 .map((organization) => organization.name)
                 .join(', ') || '-'
             "
-            class="block! truncate text-gray-100! group-hover:text-black! group-focus-visible:text-white! group-active:text-white! dark:text-neutral-400! group-hover:dark:text-white!"
+            class="block! truncate text-normal! group-hover:text-contrast! group-focus-visible:text-white! group-active:text-white!"
             :class="[
               {
-                'text-black! dark:text-white!': isRowSelected,
+                'text-contrast!': isRowSelected,
               },
             ]"
           >

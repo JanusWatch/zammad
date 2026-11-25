@@ -1,20 +1,48 @@
 {
-  "enabledManagers": ["bundler", "npm", "github-actions", "devcontainer", "custom.regex"],
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "ignorePaths": ["**/node_modules/**"],
+  "enabledManagers": [
+    "bundler",
+    "npm",
+    "github-actions",
+    "devcontainer",
+    "dockerfile",
+    "docker-compose",
+    "gitlabci",
+    "custom.regex"
+  ],
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": [
-        "/^\\.gitlab/ci/.*\\.yml$/"
-      ],
+      "managerFilePatterns": ["/^\\.gitlab/ci/.*\\.yml$/"],
       "matchStrings": ["DEVCONTAINERS_CLI_VERSION: '(?<currentValue>[^']+)'"],
       "depNameTemplate": "@devcontainers/cli",
       "datasourceTemplate": "npm"
     },
     {
       "customType": "regex",
+      "managerFilePatterns": ["/^\\.gitlab/ci/.*\\.yml$/"],
+      "matchStrings": ["PLAYWRIGHT_VERSION: '(?<currentValue>[^']+)'"],
+      "depNameTemplate": "playwright",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
       "managerFilePatterns": [
-        "/^lib/form_spam_protection/captcha/.*\\.rb$/"
+        "/^\\.devcontainer/with-playwright/(compose\\.yaml|devcontainer\\.json)$/",
+        "/^package\\.json$/"
       ],
+      "matchStrings": [
+        "mcr\\.microsoft\\.com/playwright:v(?<currentValue>[0-9.]+)-",
+        "playwright@(?<currentValue>[0-9.]+)",
+        "\"PLAYWRIGHT_VERSION\": \"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "playwright",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^lib/form_spam_protection/captcha/.*\\.rb$/"],
       "matchStrings": ["cdn\\.jsdelivr\\.net/npm/(?<depName>[^@]+)@(?<currentValue>[^/]+)/"],
       "datasourceTemplate": "npm"
     }
@@ -27,10 +55,11 @@
       "commitMessageExtra": "(Ruby)"
     }
   },
+  "gitlabci": {
+    "managerFilePatterns": ["/^\\.gitlab/ci/.*\\.yml$/"]
+  },
   "devcontainer": {
-    "managerFilePatterns": [
-      "/^\\.devcontainer/[^/]+/devcontainer\\.json$/"
-    ]
+    "managerFilePatterns": ["/^\\.devcontainer/[^/]+/devcontainer\\.json$/"]
   },
   "npm": {
     "lockFileMaintenance": {
@@ -41,6 +70,11 @@
     }
   },
   "minimumReleaseAge": "3 days",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "minimumReleaseAge": null,
+    "addLabels": ["security"]
+  },
   "assignees": ["fl"],
   "packageRules": [
     {
@@ -64,15 +98,42 @@
       "enabled": false
     },
     {
-      "matchCategories": ["js"],
-      "matchFileNames": [".cypress/package.json"],
-      "labels": ["cypress"]
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "matchFileNames": [".dev/**", ".gitlab/packager.io/**"],
+      "enabled": false
+    },
+    {
+      "matchPackageNames": ["playwright", "playwright-ruby-client", "capybara-playwright-driver"],
+      "groupName": "Playwright packages",
+      "groupSlug": "playwright"
+    },
+    {
+      "description": "The image tag follows the playwright package, see the custom manager above.",
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": ["mcr.microsoft.com/playwright"],
+      "enabled": false
+    },
+    {
+      "matchDepNames": ["ruby", "docker.io/library/ruby"],
+      "groupName": "Ruby version",
+      "groupSlug": "ruby-version"
+    },
+    {
+      "matchDepNames": ["node", "docker.io/library/node"],
+      "groupName": "Node version",
+      "groupSlug": "node-version"
     },
     {
       "matchCategories": ["js"],
       "groupName": "Eslint packages",
       "groupSlug": "eslint",
       "matchPackageNames": ["/eslint/"]
+    },
+    {
+      "matchCategories": ["js"],
+      "groupName": "Oxc packages",
+      "groupSlug": "oxc",
+      "matchPackageNames": ["oxlint", "oxfmt", "eslint-plugin-oxlint"]
     },
     {
       "matchCategories": ["js"],
@@ -90,6 +151,8 @@
       "matchCategories": ["js"],
       "matchPackageNames": [
         "vitest",
+        "/^@vitest\\//",
+        "vitest-browser-vue",
         "jsdom",
         "@vue/test-utils",
         "@pinia/testing",
@@ -103,7 +166,7 @@
       "matchCategories": ["js"],
       "groupName": "Vite packages",
       "groupSlug": "vite-related",
-      "matchPackageNames": ["/^vite/", "/^@vitejs/", "!vitest"]
+      "matchPackageNames": ["/^vite/", "/^@vitejs/", "!/^vitest/"]
     },
     {
       "matchCategories": ["js"],
@@ -118,7 +181,7 @@
         "/^@vue/",
         "/^vue/",
         "!@vue/eslint-config-typescript",
-        "!@vuepic/vue-datepicker"
+        "!/^@vueuse/"
       ],
       "groupName": "Vue packages",
       "groupSlug": "vue"
@@ -141,14 +204,7 @@
     },
     {
       "matchCategories": ["js"],
-      "matchPackageNames": [
-        "postcss",
-        "postcss-html",
-        "sass",
-        "autoprefixer",
-        "/tailwind/",
-        "!@formkit/tailwindcss"
-      ],
+      "matchPackageNames": ["postcss", "postcss-html", "sass", "autoprefixer", "/tailwind/"],
       "groupName": "Tailwind/Styling packages",
       "groupSlug": "tailwind-styling-related"
     }

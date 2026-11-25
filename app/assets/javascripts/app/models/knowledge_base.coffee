@@ -12,7 +12,7 @@ class App.KnowledgeBase extends App.Model
   publicBaseUrl: (kb_locale = undefined) ->
     # coffeelint: disable=indentation
     components = if @custom_address? && @custom_address[0] != '/'
-                   ["http://#{@custom_address}"]
+                   ["#{App.Config.get('http_type') || 'http'}://#{@custom_address.replace(/^([^/]+):(80|443)(?=\/|$)/, '$1')}"]
                  else if @custom_address?
                    [App.Utils.baseUrl(), @custom_address.substr(1, @custom_address.length - 1)]
                  else
@@ -126,7 +126,7 @@ class App.KnowledgeBase extends App.Model
 
   removeAssetsIfNeeded: (data) =>
     removeAnswers    = _.difference @loadedAnswerIds(), data.answer_ids
-    removeCategories = _.difference @loadedAnswerIds(), data.category_ids
+    removeCategories = _.difference @loadedCategoryIds(), data.category_ids
 
     for answer_id in removeAnswers
       App.KnowledgeBaseAnswer.find(answer_id)?.remove(clear: true)

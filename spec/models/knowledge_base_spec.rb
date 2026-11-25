@@ -2,15 +2,13 @@
 
 require 'rails_helper'
 require 'models/concerns/checks_kb_client_notification_examples'
-require 'models/contexts/factory_context'
+require 'models/concerns/has_translations_examples'
 
 RSpec.describe KnowledgeBase, type: :model do
   subject(:knowledge_base) { create(:knowledge_base) }
 
   # make sure there's no KBs from seed data
   before { described_class.all.each(&:full_destroy!) }
-
-  include_context 'factory'
 
   it_behaves_like 'ChecksKbClientNotification'
 
@@ -31,6 +29,59 @@ RSpec.describe KnowledgeBase, type: :model do
   it 'keeps a sorting mode it was created with' do
     expect(create(:knowledge_base, category_sorting_mode: 'last_update').category_sorting_mode)
       .to eq('last_update')
+  end
+
+  describe 'HasTranslations' do
+    include_context 'basic Knowledge Base'
+
+    let!(:record) { knowledge_base }
+    let(:add_translation) do
+      ->(locale) { create(:knowledge_base_translation, knowledge_base: record, kb_locale: locale) }
+    end
+
+    it_behaves_like 'HasTranslations'
+  end
+
+  describe '.available_in' do
+    include_context 'basic Knowledge Base'
+
+    let(:browsed) { alternative_locale.system_locale }
+
+    it 'includes a knowledge base translated to the locale' do
+      create(:knowledge_base_translation, kb_locale: alternative_locale)
+
+      expect(described_class.available_in(browsed)).to include(knowledge_base)
+    end
+
+    it 'includes an untranslated knowledge base holding a published answer translated to the locale' do
+      create(:knowledge_base_answer_translation, answer: published_answer_in_subcategory, kb_locale: alternative_locale)
+
+      expect(described_class.available_in(browsed)).to include(knowledge_base)
+    end
+
+    it 'leaves out an untranslated knowledge base with nothing translated to the locale' do
+      published_answer
+
+      expect(described_class.available_in(browsed)).not_to include(knowledge_base)
+    end
+
+    it 'leaves out an untranslated knowledge base whose only translated content is unpublished' do
+      create(:knowledge_base_answer_translation, answer: draft_answer, kb_locale: alternative_locale)
+
+      expect(described_class.available_in(browsed)).not_to include(knowledge_base)
+    end
+
+    it 'loads the knowledge base under its primary translation when it has none in the locale' do
+      create(:knowledge_base_answer_translation, answer: published_answer, kb_locale: alternative_locale)
+
+      expect(described_class.available_in(browsed).find(knowledge_base.id).translation.kb_locale).to eq(primary_locale)
+    end
+
+    it 'matches nothing without a locale, whatever content there is' do
+      published_answer
+
+      expect(described_class.available_in(nil)).not_to exist
+    end
   end
 
   describe 'audit log' do
@@ -175,6 +226,61 @@ RSpec.describe KnowledgeBase, type: :model do
       JSON.parse(Rails.public_path.join("assets/icon-fonts/#{iconset}.json").read)
         .fetch('icons')
         .pluck('unicode')
+    end
+  end
+
+  describe '#canonical_url' do
+    before do
+      Setting.set('http_type', 'https')
+      knowledge_base.update!(custom_address: custom_address)
+    end
+
+    context 'without a custom address' do
+      let(:custom_address) { nil }
+
+      it 'uses the system FQDN and the regular help path' do
+        expect(knowledge_base.canonical_url('/help/en-us')).to eq("https://#{Setting.get('fqdn')}/help/en-us")
+      end
+    end
+
+    context 'with a custom path' do
+      let(:custom_address) { '/support' }
+
+      it 'uses the system FQDN and the custom path' do
+        expect(knowledge_base.canonical_url('/help/en-us')).to eq("https://#{Setting.get('fqdn')}/support/en-us")
+      end
+    end
+
+    context 'with a custom domain' do
+      let(:custom_address) { 'help.example.com' }
+
+      it 'uses the custom domain' do
+        expect(knowledge_base.canonical_url('/help/en-us')).to eq('https://help.example.com/en-us')
+      end
+    end
+
+    context 'with a custom domain on a non-default port' do
+      let(:custom_address) { 'help.example.com:8443/support' }
+
+      it 'keeps the port' do
+        expect(knowledge_base.canonical_url('/help/en-us')).to eq('https://help.example.com:8443/support/en-us')
+      end
+    end
+
+    context 'with a custom domain on the default port of the scheme' do
+      let(:custom_address) { 'help.example.com:443' }
+
+      it 'omits the port' do
+        expect(knowledge_base.canonical_url('/help/en-us')).to eq('https://help.example.com/en-us')
+      end
+    end
+
+    context 'with a custom domain on the default port of the other scheme' do
+      let(:custom_address) { 'help.example.com:80' }
+
+      it 'omits the port' do
+        expect(knowledge_base.canonical_url('/help/en-us')).to eq('https://help.example.com/en-us')
+      end
     end
   end
 

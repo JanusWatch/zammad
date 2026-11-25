@@ -65,10 +65,38 @@ RSpec.describe Gql::Mutations::Login, :aggregate_failures, type: :request do
       post '/graphql', params: { query: query, variables: variables }, headers: headers, as: :json
     end
 
+    context 'with correct credentials in import mode' do
+      before { Setting.set('import_mode', true) }
+
+      it 'refuses the login' do
+        expect(graphql_response['errors'].first['message']).to eq('Maintenance mode enabled!')
+      end
+
+      context 'with an administrator' do
+        let(:agent) { create(:admin, password: agent_password) }
+
+        it 'returns session data' do
+          expect(graphql_response['data']['login']['session']['id']).to be_present
+        end
+      end
+    end
+
     context 'with correct credentials' do
       context 'without two factor authentication' do
         it 'returns session data' do
           expect(graphql_response['data']['login']['session']['id']).to be_present
+        end
+
+        it 'does not return the session cookie value as session id' do
+          expect(graphql_response['data']['login']['session']['id']).not_to eq(cookies[Zammad::Application::Initializer::SessionStore::SESSION_KEY])
+        end
+
+        it 'returns the same session id as the session query' do
+          login_session_id = graphql_response['data']['login']['session']['id']
+
+          post '/graphql', params: { query: '{ session { id } }' }, headers: headers, as: :json
+
+          expect(json_response['data']['session']['id']).to eq(login_session_id)
         end
 
         it 'sets the :persistent session parameter' do
@@ -95,7 +123,7 @@ RSpec.describe Gql::Mutations::Login, :aggregate_failures, type: :request do
             }
           end
 
-          it 'adds an activity stream entry for the user’s session' do
+          it 'keeps the session for one year' do
             execute_graphql_query
             expect(request.env['rack.session.options'][:expire_after]).to eq(1.year)
           end
@@ -103,7 +131,7 @@ RSpec.describe Gql::Mutations::Login, :aggregate_failures, type: :request do
           context 'with not activated remember me' do
             let(:remember_me) { false }
 
-            it 'adds an activity stream entry for the user’s session' do
+            it 'does not set a session expiry' do
               execute_graphql_query
               expect(request.env['rack.session.options'][:expire_after]).to be_nil
             end
@@ -150,13 +178,14 @@ RSpec.describe Gql::Mutations::Login, :aggregate_failures, type: :request do
             }
           end
 
-          it 'fails with error message' do
+          it 'fails with error message and increases the failed login count' do
             expect(graphql_response['data']['login']['errors']).to eq(
               [{
                 'message' => 'Login failed. Please double-check your two-factor authentication method.',
                 'field'   => nil
               }]
             )
+            expect(agent.reload.login_failed).to eq(1)
           end
 
           context 'when default method is disabled, but another exists' do

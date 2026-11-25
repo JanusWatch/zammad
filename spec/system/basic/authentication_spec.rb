@@ -18,6 +18,17 @@ RSpec.describe 'Authentication', type: :system do
     expect(cookie[:expires]).to be_nil
   end
 
+  it 'Login with the dashboard turned off', authenticated_as: false do
+    Setting.set('dashboard', false)
+
+    login(
+      username: 'admin@example.com',
+      password: 'test',
+    )
+
+    expect_current_route 'ticket/view'
+  end
+
   it 'Login with remember me', authenticated_as: false do
     login(
       username:    'admin@example.com',
@@ -57,6 +68,7 @@ RSpec.describe 'Authentication', type: :system do
     visit '/#signup'
 
     # check wrong displayed fields in registration form after logout. #2989
+    expect(page).to have_field('firstname')
     expect(page).to have_no_select('organization_id')
   end
 

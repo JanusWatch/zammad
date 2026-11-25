@@ -35,6 +35,7 @@ const renderSuggestions = (props: Partial<Props> = {}) =>
       hasError: false,
       errorDetail: null,
       isTicketEditable: true,
+      canInsertAnswer: false,
       showRelevanceScore: false,
       ...props,
     },
@@ -76,6 +77,7 @@ const relatedAnswer = (id: number, title: string, score = 90): RelatedAnswer => 
     __typename: 'KnowledgeBaseAnswerTranslation',
     id: convertToGraphQLId('KnowledgeBase::Answer::Translation', id),
     title,
+    maybeLocale: null,
     visibility: EnumKnowledgeBaseVisibility.Published,
     categoryTreeTranslation: [
       {
@@ -86,6 +88,7 @@ const relatedAnswer = (id: number, title: string, score = 90): RelatedAnswer => 
     ],
     content: {
       __typename: 'KnowledgeBaseAnswerTranslationContent',
+      id: convertToGraphQLId('KnowledgeBase::Answer::Translation::Content', id),
       bodyExcerpt: null,
     },
     answer: {
@@ -229,6 +232,34 @@ describe('TicketKnowledgeBaseAiSuggested', () => {
     expect(
       wrapper.queryByRole('button', { name: 'Link knowledge base answer' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('requests the insert of a suggested answer while an article is being written', async () => {
+    const wrapper = renderSuggestions({
+      answers: [relatedAnswer(1, 'Reset your password')],
+      canInsertAnswer: true,
+    })
+
+    await wrapper.events.click(
+      await wrapper.findByRole('button', { name: 'Insert knowledge base answer' }),
+    )
+
+    expect(wrapper.emitted('insert')).toEqual([
+      [convertToGraphQLId('KnowledgeBase::Answer::Translation', 1)],
+    ])
+  })
+
+  it('hides the insert action while no article is being written', async () => {
+    const wrapper = renderSuggestions({
+      answers: [relatedAnswer(1, 'Reset your password')],
+    })
+
+    await wrapper.findByText('Reset your password')
+
+    expect(
+      wrapper.queryByRole('button', { name: 'Insert knowledge base answer' }),
+    ).not.toBeInTheDocument()
+    expect(wrapper.getByRole('button', { name: 'Link knowledge base answer' })).toBeInTheDocument()
   })
 
   it('shows the relevance score when the user has the right permissions', async () => {

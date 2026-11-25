@@ -19,6 +19,14 @@ class App.WidgetLinkKbAnswer extends App.WidgetLink
     'click .js-kb-ai-generate':       'openAiDraftModal'
     'click .js-kb-suggestions-retry': 'retrySuggestions'
     'click .js-kb-suggestion-add':    'linkSuggestion'
+    'click .js-kb-insert':            'insertAnswer'
+
+  # The ticket's reply editor offers the linked and suggested answers in its `??` list, and reads
+  # them from the widget on screen instead of searching a second time.
+  @instances: {}
+
+  @relatedAnswersForInsertion: (ticketId) ->
+    @instances[ticketId]?.relatedAnswersForInsertion() or { linked: [], suggested: [] }
 
   constructor: ->
     super
@@ -32,6 +40,13 @@ class App.WidgetLinkKbAnswer extends App.WidgetLink
 
       @render()
       @ensureSuggestions('sidebar') if @suggestionsVisible()
+    )
+
+    # The insert action is offered only while the article is being written.
+    @controllerBind('ui::ticket::articleNew::open', (data) =>
+      return if data.ticket_id?.toString() isnt @object.id.toString()
+
+      @toggleInsertActions()
     )
 
     return if !@suggestionsSearchAvailable()
@@ -181,6 +196,44 @@ class App.WidgetLinkKbAnswer extends App.WidgetLink
       .filter (elem) ->
         elem?
 
+  # Suggestions are left out until they are ready, instead of reporting their state in the `??` list.
+  relatedAnswersForInsertion: =>
+    linked = (@localLinks or [])
+      .filter((elem) -> elem.link_object is 'KnowledgeBase::Answer::Translation')
+      .map((elem) -> App.KnowledgeBaseAnswerTranslation.fullLocal(elem.link_object_value))
+      .filter((translation) -> translation?)
+
+    state     = @suggestionState('sidebar')
+    suggested = []
+
+    if @suggestionsVisible() and state.loaded and not state.error
+      # Linking one locale of an answer covers all of them, as on the server.
+      linkedAnswerIds = linked.map((translation) -> "#{translation.answer_id}")
+
+      suggested = state.ids
+        .map((id) -> App.KnowledgeBaseAnswerTranslation.fullLocal(id))
+        .filter((translation) -> translation? and "#{translation.answer_id}" not in linkedAnswerIds)
+
+    insertable = (translation) =>
+      answer    = translation.parent()
+      kb_locale = App.KnowledgeBaseLocale.find(translation.kb_locale_id)
+
+      id:       translation.id
+      title:    @titleWithLocale(translation, answer, kb_locale)
+      category: if kb_locale then answer.category().categoriesForSearch(kb_locale: kb_locale) else ''
+      url:      translation.contentUrl()
+
+    {
+      linked:    linked.map(insertable)
+      suggested: suggested.map(insertable)
+    }
+
+  # Like the search results, which carry the locale in the title once a knowledge base has several.
+  titleWithLocale: (translation, answer, kb_locale) ->
+    return translation.title if !kb_locale or answer.knowledge_base().kb_locales().length < 2
+
+    "#{translation.title} (#{kb_locale.systemLocale().locale.toUpperCase()})"
+
   # The state the AI draft modal renders from.
   suggestionsState: =>
     state     = @suggestionState('modal')
@@ -239,6 +292,17 @@ class App.WidgetLinkKbAnswer extends App.WidgetLink
     e.stopPropagation()
     @saveToServer($(e.currentTarget).data('object-id'))
 
+  insertAnswer: (e) =>
+    @preventDefault(e)
+
+    App.Event.trigger('ui::ticket::insertKnowledgeBaseAnswer', {
+      ticket_id:      @object.id
+      translation_id: $(e.currentTarget).data('object-id')
+    })
+
+  toggleInsertActions: =>
+    @$('.js-kb-insert').toggleClass('hide', !App.TicketZoomArticleNew.isOpen(@object.id))
+
   requestSuggestions: (scope) =>
     @suggestionState(scope).requested = true
 
@@ -262,6 +326,9 @@ class App.WidgetLinkKbAnswer extends App.WidgetLink
 
       clearTimeout(timeout)
       delete App.WidgetLinkKbAnswer.suggestionsTimeouts[key]
+
+    if App.WidgetLinkKbAnswer.instances[@object.id] is @
+      delete App.WidgetLinkKbAnswer.instances[@object.id]
 
     super
 
@@ -314,6 +381,9 @@ class App.WidgetLinkKbAnswer extends App.WidgetLink
     )
 
   render: ->
+    # The base constructor renders already, and the render notifies the `??` list.
+    App.WidgetLinkKbAnswer.instances[@object.id] = @
+
     user = App.User.current()
 
     aiEnabled =
@@ -354,8 +424,11 @@ class App.WidgetLinkKbAnswer extends App.WidgetLink
 
     @refreshElements()
     @searchableSelect.addClass('hidden')
+    @toggleInsertActions()
 
     @aiDraftModal?.update()
+
+    App.Event.trigger('ui::ticket::related_knowledge_base_answers::update', { ticket_id: @object.id })
 
   didSubmit: =>
     if @shadowField.val() == ''

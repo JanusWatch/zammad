@@ -1,5 +1,18 @@
 assets:build:
   stage: test
+  needs:
+    - !reference [.needs, ruby]
+    - !reference [.needs, nodejs]
+    - !reference [.needs, lint]
+  timeout: 15 minutes
+  # Without the variable filters on purpose: the browser jobs of a filtered pipeline
+  #   ($JOB_FILTER, $BROWSER_TEST_FILTER) still need the assets built here, as the
+  #   specs themselves skip the compilation ($CI_SKIP_ASSETS_PRECOMPILE).
+  rules:
+    - !reference [.rule_fragments, then_unless_vitest_browser_test_filter_only]
+  extends:
+    - .template_ruby
+    - .no_artifact_dependencies
   services:
     - !reference [.services, postgresql]
   artifacts:
@@ -28,7 +41,14 @@ assets:build:
 assets:build:pwa:
   stage: test
   extends:
+    - .template_ruby
     - .job_rules_default
+    - .no_artifact_dependencies
+  needs:
+    - !reference [.needs, ruby]
+    - !reference [.needs, nodejs]
+    - !reference [.needs, lint]
+  timeout: 15 minutes
   services:
     - !reference [.services, postgresql]
   cache: !reference [.cache, read_only_full]

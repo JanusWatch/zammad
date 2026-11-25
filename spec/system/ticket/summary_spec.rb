@@ -105,6 +105,8 @@ RSpec.describe 'Ticket Summary', authenticated_as: :authenticate, type: :system 
     context 'when ai_provider is set' do
       before do
         click '.tabsSidebar-tab[data-tab=summary]'
+
+        wait_for_authenticated_session(user: agent)
       end
 
       it 'displays and updates summary in sidebar', performs_jobs: true do
@@ -233,9 +235,10 @@ RSpec.describe 'Ticket Summary', authenticated_as: :authenticate, type: :system 
       end
 
       it 'shows the sidebar once the ticket starts matching, without a page refresh' do
-        expect(page).to have_no_css('.tabsSidebar-tab[data-tab=summary]')
+        expect(page).to have_text(ticket.title)
+          .and have_no_css('.tabsSidebar-tab[data-tab=summary]')
 
-        ensure_websocket
+        wait_for_authenticated_session(user: agent)
 
         ticket.update!(priority: Ticket::Priority.find_by(name: '3 high'))
 
@@ -265,7 +268,7 @@ RSpec.describe 'Ticket Summary', authenticated_as: :authenticate, type: :system 
       it 'hides the sidebar once the ticket stops matching, without a page refresh' do
         expect(page).to have_css('.tabsSidebar-tab[data-tab=summary]')
 
-        ensure_websocket
+        wait_for_authenticated_session(user: agent)
 
         ticket.update!(priority: Ticket::Priority.find_by(name: '2 normal'))
 
@@ -279,7 +282,7 @@ RSpec.describe 'Ticket Summary', authenticated_as: :authenticate, type: :system 
 
         expect(page).to have_css('.tabsSidebar-tab[data-tab=summary].active')
 
-        ensure_websocket
+        wait_for_authenticated_session(user: agent)
 
         ticket.update!(priority: Ticket::Priority.find_by(name: '2 normal'))
 
@@ -293,7 +296,12 @@ RSpec.describe 'Ticket Summary', authenticated_as: :authenticate, type: :system 
   end
 
   describe 'Indicator', performs_jobs: true do
-    before { visit "ticket/zoom/#{ticket.id}" }
+    before do
+      visit "ticket/zoom/#{ticket.id}"
+
+      # The examples rely on the push of the new article, which is dropped until the websocket has logged in.
+      wait_for_authenticated_session(user: agent)
+    end
 
     context 'when summary was updated before opening the tab' do
       it 'dot is visible but gone after looking at the sidebar' do
@@ -305,7 +313,8 @@ RSpec.describe 'Ticket Summary', authenticated_as: :authenticate, type: :system 
 
         refresh
 
-        expect(page).to have_no_css('.tabsSidebar-tab[data-tab=summary] .tabsSidebar-tab-dot')
+        expect(page).to have_css('.tabsSidebar-tab[data-tab=summary]')
+          .and have_no_css('.tabsSidebar-tab[data-tab=summary] .tabsSidebar-tab-dot')
       end
 
       it 'dot is visible when summary is updated while looking at other tab' do
@@ -359,6 +368,8 @@ RSpec.describe 'Ticket Summary', authenticated_as: :authenticate, type: :system 
 
         perform_enqueued_jobs(only: TicketAIAssistanceSummarizeJob)
 
+        # The update re-renders the tab badge, and a click during that re-render is lost.
+        expect(page).to have_css('.sidebar[data-tab="summary"]', text: updated_summary, visible: :hidden)
         expect(page).to have_no_css('.tabsSidebar-tab[data-tab=summary] .tabsSidebar-tab-dot')
 
         click '.tabsSidebar-tab[data-tab=summary]'
@@ -514,7 +525,11 @@ RSpec.describe 'Ticket Summary', authenticated_as: :authenticate, type: :system 
       let(:ai_analytics_usage) { create(:ai_analytics_usage, ai_analytics_run:, user: agent, rating: nil) }
 
       it 'does not record usage again when switching to summary tab', do_not_click_summary_tab: true do
-        expect { click '.tabsSidebar-tab[data-tab=summary]' }.not_to change(ai_analytics_usage, :updated_at)
+        expect do
+          click '.tabsSidebar-tab[data-tab=summary]'
+          expect(page).to have_css('.sidebar[data-tab="summary"] .js-aiFeedbackButtons')
+          await_empty_ajax_queue
+        end.not_to change { ai_analytics_usage.reload.updated_at }
       end
 
       it 'renders feedback buttons' do
@@ -526,6 +541,28 @@ RSpec.describe 'Ticket Summary', authenticated_as: :authenticate, type: :system 
             .and have_no_text('You have already provided feedback, thank you.')
         end
 
+      end
+
+      context 'when user provides feedback meanwhile in another view' do
+        before do
+          # Waits for the buttons, so the update below happens after the page has loaded the usage.
+          find('.sidebar[data-tab="summary"] .js-aiFeedbackButtons')
+
+          ai_analytics_usage.update!(rating: true)
+        end
+
+        it 'shows the feedback as given instead of the comment field' do
+          within '.sidebar[data-tab="summary"]' do
+            click '.js-aiNegativeReaction'
+
+            expect(page).to have_text('Thank you for your feedback.')
+              .and have_no_field('comment')
+              .and have_no_css('.js-aiFeedbackButtons')
+              .and have_css('.js-aiFeedbackAlert.hide', visible: :all)
+          end
+
+          expect(ai_analytics_usage.reload).to have_attributes(rating: true)
+        end
       end
 
       context 'when user has already provided feedback' do

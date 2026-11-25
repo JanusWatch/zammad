@@ -31,6 +31,7 @@ export interface Props {
   access?: AvatarUserAccess
   noMuted?: boolean
   noIndicator?: boolean
+  avatarClass?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -103,9 +104,8 @@ const isMuted = computed(() => !props.noMuted && indicatorIsIdle.value)
 const className = computed(() => {
   const classes = [colorClass.value]
 
-  if (isMuted.value) {
-    classes.push('opacity-60')
-  }
+  if (isMuted.value) classes.push('opacity-60')
+  if (props.avatarClass) classes.push(props.avatarClass)
 
   return classes
 })
@@ -124,8 +124,8 @@ const indicator = computed(() => {
 })
 
 const indicatorClass = computed(() => {
-  if (isMuted.value) return 'fill-stone-200 dark:fill-neutral-500'
-  return 'text-black dark:text-white'
+  if (isMuted.value) return 'fill-muted'
+  return 'text-contrast'
 })
 
 const indicatorSizes = {

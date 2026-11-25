@@ -129,6 +129,34 @@ describe UserPolicy do
       it { is_expected.to permit_only_actions(%i[show nested_show]) }
     end
 
+    context 'when record is both partial admin and customer' do
+      let(:partial_admin_role) { create(:role).tap { |role| role.permission_grant('admin.channel_email') } }
+      let(:record)             { create(:customer, role_ids: Role.signup_role_ids.push(partial_admin_role.id)) }
+
+      it { is_expected.to permit_only_actions(%i[show nested_show]) }
+    end
+
+  end
+
+  context 'when user is a phone agent without ticket permissions' do
+    let(:user) { create(:user, roles: [create(:role, permission_names: 'cti.agent')]) }
+
+    context 'when record is a customer user' do
+      let(:record) { create(:customer) }
+
+      it { is_expected.to permit_only_actions(%i[nested_show]) }
+
+      it 'restricts fields for nested_show?', :aggregate_failures do
+        expect(user_policy.nested_show?).to permit_fields(%i[id firstname lastname image image_source active])
+        expect(user_policy.nested_show?).to forbid_fields(%i[email phone mobile note])
+      end
+    end
+
+    context 'when record is the same user' do
+      let(:record) { user }
+
+      it { is_expected.to permit_only_actions(%i[show nested_show]) }
+    end
   end
 
   context 'when user is a customer' do
